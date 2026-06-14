@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,7 +35,7 @@ class RetrievalResult:
 
 def retrieve_passages(
     *,
-    index_dir: str | Path,
+    index_dir: str | Path | None = None,
     charter: str,
     query: str,
     key_images: list[str] | None = None,
@@ -85,7 +86,7 @@ def retrieve_passages(
 
 def retrieve_amplification(
     *,
-    index_dir: str | Path,
+    index_dir: str | Path | None = None,
     key_images: list[str],
     top_k: int = 5,
     min_results: int = 1,
@@ -103,7 +104,7 @@ def retrieve_amplification(
 def write_agent_grounding(
     *,
     run_dir: str | Path,
-    index_dir: str | Path,
+    index_dir: str | Path | None = None,
     charter_root: str | Path,
     structures: list[str],
     key_images: list[str] | None = None,
@@ -145,7 +146,7 @@ def write_agent_grounding(
 def write_amplification_grounding(
     *,
     run_dir: str | Path,
-    index_dir: str | Path,
+    index_dir: str | Path | None = None,
     key_images: list[str],
     top_k: int = 5,
     min_results: int = 1,
@@ -174,15 +175,31 @@ def write_amplification_grounding(
     return result
 
 
-def _database_path(index_dir: str | Path) -> Path:
+DEFAULT_INDEX_DIR = "corpus/index"
+INDEX_ENV_VAR = "NATAL_CORPUS_INDEX"
+
+
+def resolve_index_dir(index_dir: str | Path | None = None) -> Path:
+    """Resolve the corpus index location so a run finds it regardless of CWD or
+    worktree. Explicit arg wins; else the ``NATAL_CORPUS_INDEX`` env var (a stable
+    path that survives worktree isolation); else the in-repo default."""
+    if index_dir is not None:
+        return Path(index_dir)
+    env = os.environ.get(INDEX_ENV_VAR)
+    if env and env.strip():
+        return Path(env.strip())
+    return Path(DEFAULT_INDEX_DIR)
+
+
+def _database_path(index_dir: str | Path | None) -> Path:
     path = _database_path_candidate(index_dir)
     if not path.exists():
         raise FileNotFoundError(f"Corpus index does not exist: {path}")
     return path
 
 
-def _database_path_candidate(index_dir: str | Path) -> Path:
-    path = Path(index_dir)
+def _database_path_candidate(index_dir: str | Path | None) -> Path:
+    path = resolve_index_dir(index_dir)
     if path.is_dir() or path.suffix == "":
         return path / "corpus.sqlite"
     return path

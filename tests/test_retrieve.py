@@ -1,5 +1,9 @@
+from pathlib import Path
+
 from natal_chart.corpus import ingest_corpus
 from natal_chart.retrieve import (
+    DEFAULT_INDEX_DIR,
+    resolve_index_dir,
     retrieve_amplification,
     retrieve_passages,
     write_agent_grounding,
@@ -116,6 +120,39 @@ def test_retrieve_passages_flags_sparse_grounding_for_empty_corpus(tmp_path):
     assert result.passages == []
     assert result.sparse is True
     assert result.grounding_note == "Sparse grounding: retrieved 0 passage(s), below the requested minimum of 2."
+
+
+def test_resolve_index_dir_prefers_arg_then_env_then_default(tmp_path, monkeypatch):
+    # explicit arg always wins
+    assert resolve_index_dir(tmp_path / "explicit") == tmp_path / "explicit"
+    # else the env var (a stable path that survives worktree isolation)
+    monkeypatch.setenv("NATAL_CORPUS_INDEX", str(tmp_path / "from-env"))
+    assert resolve_index_dir() == tmp_path / "from-env"
+    assert resolve_index_dir(None) == tmp_path / "from-env"
+    assert resolve_index_dir(tmp_path / "explicit") == tmp_path / "explicit"
+    # else the in-repo default
+    monkeypatch.delenv("NATAL_CORPUS_INDEX", raising=False)
+    assert resolve_index_dir() == Path(DEFAULT_INDEX_DIR)
+
+
+def test_retrieve_resolves_corpus_from_env_when_index_dir_omitted(tmp_path, monkeypatch):
+    # Regression for the corpus-reachability bug: a run launched without a
+    # CWD-local corpus (e.g. an isolation worktree) must still find the corpus via
+    # NATAL_CORPUS_INDEX rather than silently grounding on nothing.
+    source_dir = tmp_path / "sources"
+    index_dir = tmp_path / "stable-home" / "index"
+    source_dir.mkdir()
+    (source_dir / "C.G. Jung — Shadow.txt").write_text(
+        "The shadow gathers rejected psychic material; Saturn images the hard gate.\n" * 80,
+        encoding="utf-8",
+    )
+    ingest_corpus(source_dir=source_dir, index_dir=index_dir)
+    monkeypatch.setenv("NATAL_CORPUS_INDEX", str(index_dir))
+
+    result = retrieve_passages(charter="shadow", query="Saturn shadow", min_results=1)
+
+    assert result.sparse is False
+    assert result.passages
 
 
 def test_write_agent_grounding_flags_sparse_corpus_without_blocking_run(tmp_path):
