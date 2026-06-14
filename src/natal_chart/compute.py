@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from importlib import resources
 from itertools import combinations
 from math import floor
@@ -17,6 +17,7 @@ from natal_chart.models import (
     BodyPosition,
     ChartBrief,
     ChartComputationError,
+    ChartSelection,
     Configuration,
     HouseCusp,
     LayerBrief,
@@ -53,6 +54,14 @@ PLANET_IDS = (
     ("Chiron", swe.CHIRON),
 )
 
+OPTIONAL_BODY_IDS = (
+    ("Black Moon Lilith", swe.MEAN_APOG),
+    ("Ceres", swe.CERES),
+    ("Pallas", swe.PALLAS),
+    ("Juno", swe.JUNO),
+    ("Vesta", swe.VESTA),
+)
+
 ANGLE_HOUSES = {
     "Ascendant": 1,
     "Descendant": 7,
@@ -85,19 +94,93 @@ CONFIGURATION_BODY_NAMES = {
     "Chiron",
 }
 
+TROPICAL_YEAR_DAYS = 365.2422
+EPHEMERIS_FLAGS = swe.FLG_SWIEPH | swe.FLG_SPEED
 
-def compute_chart(birth: BirthData) -> ChartBrief:
+
+def compute_chart(birth: BirthData, *, selection: ChartSelection | None = None) -> ChartBrief:
+    selection = selection or ChartSelection()
     resolved = _resolve_birth(birth)
     _set_swiss_ephemeris_path()
 
-    jd_ut = _julian_day(resolved.utc_datetime)
-    house_cusps, raw_cusps, angle_longitudes = _compute_houses(jd_ut, resolved.latitude, resolved.longitude)
-    bodies = _compute_bodies(jd_ut, raw_cusps, angle_longitudes)
+    layer_builders = {
+        "natal": lambda: _compute_standard_layer(
+            "natal",
+            _julian_day(resolved.utc_datetime),
+            resolved.latitude,
+            resolved.longitude,
+            include_optional_bodies=selection.include_optional_bodies,
+        ),
+        "transits": lambda: _compute_standard_layer(
+            "transits",
+            _julian_day(_required_layer_datetime(selection.transit_date, "transits", "transit_date")),
+            resolved.latitude,
+            resolved.longitude,
+            include_optional_bodies=selection.include_optional_bodies,
+        ),
+        "secondary_progressions": lambda: _compute_standard_layer(
+            "secondary_progressions",
+            _secondary_progressed_jd(
+                datetime.fromisoformat(resolved.utc_datetime),
+                _required_layer_datetime(selection.progression_date, "secondary_progressions", "progression_date"),
+            ),
+            resolved.latitude,
+            resolved.longitude,
+            include_optional_bodies=selection.include_optional_bodies,
+        ),
+        "solar_arc": lambda: _compute_solar_arc_layer(
+            datetime.fromisoformat(resolved.utc_datetime),
+            _required_layer_datetime(selection.solar_arc_date, "solar_arc", "solar_arc_date"),
+            resolved.latitude,
+            resolved.longitude,
+            include_optional_bodies=selection.include_optional_bodies,
+        ),
+        "solar_return": lambda: _compute_standard_layer(
+            "solar_return",
+            _solar_return_jd(
+                _planet_longitude(
+                    _julian_day(resolved.utc_datetime),
+                    swe.SUN,
+                    "Sun",
+                    EPHEMERIS_FLAGS,
+                )[0],
+                _required_layer_year(selection.solar_return_year, "solar_return", "solar_return_year"),
+            ),
+            resolved.latitude,
+            resolved.longitude,
+            include_optional_bodies=selection.include_optional_bodies,
+        ),
+    }
+
+    layers = []
+    for layer_name in selection.layers:
+        if layer_name not in layer_builders:
+            raise ChartComputationError(f"Unknown chart layer: {layer_name}.")
+        layers.append(layer_builders[layer_name]())
+
+    return ChartBrief(
+        zodiac="tropical",
+        house_system="Placidus",
+        resolved_birth=resolved,
+        layers=layers,
+    )
+
+
+def _compute_standard_layer(
+    name: str,
+    jd_ut: float,
+    latitude: float,
+    longitude: float,
+    *,
+    include_optional_bodies: bool,
+) -> LayerBrief:
+    house_cusps, raw_cusps, angle_longitudes = _compute_houses(jd_ut, latitude, longitude)
+    bodies = _compute_bodies(jd_ut, raw_cusps, angle_longitudes, include_optional_bodies=include_optional_bodies)
     aspects = _compute_aspects(bodies)
     configurations = _detect_configurations(bodies, aspects)
 
-    natal = LayerBrief(
-        name="natal",
+    return LayerBrief(
+        name=name,
         julian_day_ut=_round(jd_ut),
         bodies=bodies,
         house_cusps=house_cusps,
@@ -105,11 +188,61 @@ def compute_chart(birth: BirthData) -> ChartBrief:
         configurations=configurations,
     )
 
-    return ChartBrief(
-        zodiac="tropical",
-        house_system="Placidus",
-        resolved_birth=resolved,
-        layers=[natal],
+
+def _compute_solar_arc_layer(
+    birth_utc: datetime,
+    target_utc: datetime,
+    latitude: float,
+    longitude: float,
+    *,
+    include_optional_bodies: bool,
+) -> LayerBrief:
+    birth_jd = _julian_day(birth_utc)
+    target_jd = _julian_day(target_utc)
+    natal = _compute_standard_layer(
+        "natal",
+        birth_jd,
+        latitude,
+        longitude,
+        include_optional_bodies=include_optional_bodies,
+    )
+    progressed_jd = _secondary_progressed_jd(birth_utc, target_utc)
+    progressed_sun, _ = _planet_longitude(progressed_jd, swe.SUN, "Sun", EPHEMERIS_FLAGS)
+    natal_sun = _body_by_name(natal.bodies, "Sun").longitude
+    arc = _normalize_degrees(progressed_sun - natal_sun)
+
+    house_cusps = [
+        HouseCusp(
+            house=cusp.house,
+            longitude=_round(_normalize_degrees(cusp.longitude + arc)),
+            sign=_sign_name(cusp.longitude + arc),
+            degree=_round((cusp.longitude + arc) % 30),
+        )
+        for cusp in natal.house_cusps
+    ]
+    raw_cusps = tuple(cusp.longitude for cusp in house_cusps)
+
+    bodies = [
+        _body_position(
+            body.name,
+            body.longitude + arc,
+            raw_cusps,
+            house=ANGLE_HOUSES.get(body.name),
+            speed=None,
+        )
+        for body in natal.bodies
+    ]
+    bodies = sorted(bodies, key=lambda item: _body_order(item.name))
+    aspects = _compute_aspects(bodies)
+    configurations = _detect_configurations(bodies, aspects)
+
+    return LayerBrief(
+        name="solar_arc",
+        julian_day_ut=_round(target_jd),
+        bodies=bodies,
+        house_cusps=house_cusps,
+        aspects=aspects,
+        configurations=configurations,
     )
 
 
@@ -255,10 +388,64 @@ def _strict_localize(local_naive: datetime, timezone: ZoneInfo) -> datetime:
     return next(iter(unique_by_utc.values()))
 
 
-def _julian_day(utc_datetime: str) -> float:
-    value = datetime.fromisoformat(utc_datetime).astimezone(UTC)
+def _julian_day(utc_datetime: str | datetime) -> float:
+    if isinstance(utc_datetime, str):
+        value = datetime.fromisoformat(utc_datetime).astimezone(UTC)
+    else:
+        value = utc_datetime.astimezone(UTC)
     hour = value.hour + value.minute / 60 + value.second / 3600 + value.microsecond / 3_600_000_000
     return swe.julday(value.year, value.month, value.day, hour, swe.GREG_CAL)
+
+
+def _required_layer_datetime(value: str | None, layer_name: str, field_name: str) -> datetime:
+    if value is None:
+        raise ChartComputationError(f"{layer_name} layer requires {field_name}.")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ChartComputationError(f"{field_name} must be an ISO date or datetime.") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _secondary_progressed_jd(birth_utc: datetime, target_utc: datetime) -> float:
+    birth_utc = birth_utc.astimezone(UTC)
+    target_utc = target_utc.astimezone(UTC)
+    age_days = (target_utc - birth_utc).total_seconds() / 86_400
+    if age_days < 0:
+        raise ChartComputationError("secondary_progressions date must not be before the birth date.")
+    progressed_utc = birth_utc + timedelta(days=age_days / TROPICAL_YEAR_DAYS)
+    return _julian_day(progressed_utc)
+
+
+def _required_layer_year(value: int | None, layer_name: str, field_name: str) -> int:
+    if value is None:
+        raise ChartComputationError(f"{layer_name} layer requires {field_name}.")
+    if value < 1:
+        raise ChartComputationError(f"{field_name} must be a positive calendar year.")
+    return value
+
+
+def _solar_return_jd(natal_sun_longitude: float, year: int) -> float:
+    start_jd = swe.julday(year, 1, 1, 0.0, swe.GREG_CAL)
+    end_jd = swe.julday(year + 1, 1, 1, 0.0, swe.GREG_CAL)
+    start_longitude, _ = _planet_longitude(start_jd, swe.SUN, "Sun", EPHEMERIS_FLAGS)
+    target = start_longitude + ((natal_sun_longitude - start_longitude) % 360)
+
+    def unwrapped_sun(jd_ut: float) -> float:
+        longitude, _ = _planet_longitude(jd_ut, swe.SUN, "Sun", EPHEMERIS_FLAGS)
+        return start_longitude + ((longitude - start_longitude) % 360)
+
+    low = start_jd
+    high = end_jd
+    for _ in range(80):
+        midpoint = (low + high) / 2
+        if unwrapped_sun(midpoint) < target:
+            low = midpoint
+        else:
+            high = midpoint
+    return (low + high) / 2
 
 
 def _compute_houses(
@@ -287,20 +474,36 @@ def _compute_houses(
     return house_cusps, tuple(float(cusp) for cusp in cusps), angles
 
 
-def _compute_bodies(jd_ut: float, cusps: tuple[float, ...], angle_longitudes: dict[str, float]) -> list[BodyPosition]:
+def _compute_bodies(
+    jd_ut: float,
+    cusps: tuple[float, ...],
+    angle_longitudes: dict[str, float],
+    *,
+    include_optional_bodies: bool,
+) -> list[BodyPosition]:
     bodies = []
     raw_longitudes = {}
-    flags = swe.FLG_SWIEPH | swe.FLG_SPEED
     for name, planet_id in PLANET_IDS:
-        try:
-            result, _ = swe.calc_ut(jd_ut, planet_id, flags)
-        except swe.Error as exc:
-            raise ChartComputationError(f"Could not compute {name}: {exc}") from exc
-        raw_longitudes[name] = _normalize_degrees(float(result[0]))
-        bodies.append(_body_position(name, raw_longitudes[name], cusps, speed=float(result[3])))
+        longitude, speed = _planet_longitude(jd_ut, planet_id, name, EPHEMERIS_FLAGS)
+        raw_longitudes[name] = longitude
+        bodies.append(_body_position(name, longitude, cusps, speed=speed))
 
     south_node_longitude = _normalize_degrees(raw_longitudes["North Node"] + 180)
     bodies.append(_body_position("South Node", south_node_longitude, cusps, speed=None))
+
+    if include_optional_bodies:
+        for name, planet_id in OPTIONAL_BODY_IDS:
+            longitude, speed = _planet_longitude(jd_ut, planet_id, name, EPHEMERIS_FLAGS)
+            raw_longitudes[name] = longitude
+            bodies.append(_body_position(name, longitude, cusps, speed=speed))
+
+        fortune_longitude = _part_of_fortune_longitude(
+            ascendant=angle_longitudes["Ascendant"],
+            sun=raw_longitudes["Sun"],
+            moon=raw_longitudes["Moon"],
+            sun_house=_house_for_longitude(raw_longitudes["Sun"], cusps),
+        )
+        bodies.append(_body_position("Part of Fortune", fortune_longitude, cusps, speed=None))
 
     for name in ("Ascendant", "Descendant", "Midheaven", "Imum Coeli"):
         bodies.append(
@@ -314,6 +517,28 @@ def _compute_bodies(jd_ut: float, cusps: tuple[float, ...], angle_longitudes: di
         )
 
     return sorted(bodies, key=lambda item: _body_order(item.name))
+
+
+def _planet_longitude(jd_ut: float, planet_id: int, name: str, flags: int) -> tuple[float, float]:
+    try:
+        result, _ = swe.calc_ut(jd_ut, planet_id, flags)
+    except swe.Error as exc:
+        raise ChartComputationError(f"Could not compute {name}: {exc}") from exc
+    return _normalize_degrees(float(result[0])), float(result[3])
+
+
+def _body_by_name(bodies: list[BodyPosition], name: str) -> BodyPosition:
+    for body in bodies:
+        if body.name == name:
+            return body
+    raise ChartComputationError(f"Could not find {name} in computed bodies.")
+
+
+def _part_of_fortune_longitude(*, ascendant: float, sun: float, moon: float, sun_house: int) -> float:
+    sun_above_horizon = 7 <= sun_house <= 12
+    if sun_above_horizon:
+        return _normalize_degrees(ascendant + moon - sun)
+    return _normalize_degrees(ascendant + sun - moon)
 
 
 def _body_position(
@@ -530,6 +755,12 @@ def _body_order(name: str) -> int:
         "North Node",
         "South Node",
         "Chiron",
+        "Black Moon Lilith",
+        "Ceres",
+        "Pallas",
+        "Juno",
+        "Vesta",
+        "Part of Fortune",
     ]
     return order.index(name)
 
