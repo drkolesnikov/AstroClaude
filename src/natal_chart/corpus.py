@@ -225,6 +225,10 @@ def _embed(text: str) -> list[float]:
     return [round(value / norm, 8) for value in vector]
 
 
+def embed_text(text: str) -> list[float]:
+    return _embed(text)
+
+
 def _tokens(text: str) -> list[str]:
     return re.findall(r"[a-z0-9]+", text.casefold())
 
