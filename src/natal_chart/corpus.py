@@ -12,8 +12,16 @@ from pathlib import Path
 
 from pypdf import PdfReader
 
+from natal_chart.semantic import (
+    SEMANTIC_MODEL_NAME,
+    VECTOR_DIMENSIONS,
+    SemanticEmbeddingModel,
+    build_semantic_index,
+    embed_text as embed_semantic_text,
+    model_to_payload,
+)
+
 SOURCE_EXTENSIONS = {".txt", ".md", ".pdf", ".epub"}
-VECTOR_DIMENSIONS = 128
 DEFAULT_CHUNK_WORDS = 220
 DEFAULT_CHUNK_OVERLAP = 40
 
@@ -54,6 +62,7 @@ class ChunkRecord:
 class EmbeddingIndex:
     chunks: list[ChunkRecord]
     idf_weights: dict[str, float]
+    embedding_model: SemanticEmbeddingModel
 
 
 @dataclass(frozen=True)
@@ -85,7 +94,14 @@ def ingest_corpus(
     _write_database(database_path, sources, embedding_index)
 
     manifest_path = index_dir / "manifest.json"
-    _write_manifest(manifest_path, source_dir, database_path, sources, len(embedding_index.chunks))
+    _write_manifest(
+        manifest_path,
+        source_dir,
+        database_path,
+        sources,
+        len(embedding_index.chunks),
+        embedding_index.embedding_model.name,
+    )
     _write_curation_decisions(index_dir / "curation_decisions.json", curation_decisions)
 
     return CorpusIngestionResult(
@@ -137,7 +153,7 @@ def _build_records(
                     "end_word": end_word,
                 }
             )
-    idf_weights = _idf_weights([item["text"] for item in chunk_inputs])
+    embedding_model, vectors, idf_weights = build_semantic_index([item["text"] for item in chunk_inputs])
     chunks = [
         ChunkRecord(
             chunk_id=item["chunk_id"],
@@ -146,11 +162,15 @@ def _build_records(
             text=item["text"],
             start_word=item["start_word"],
             end_word=item["end_word"],
-            vector=_embed(item["text"], idf_weights=idf_weights),
+            vector=vector,
         )
-        for item in chunk_inputs
+        for item, vector in zip(chunk_inputs, vectors, strict=True)
     ]
-    return sources, EmbeddingIndex(chunks=chunks, idf_weights=idf_weights), curation_decisions
+    return (
+        sources,
+        EmbeddingIndex(chunks=chunks, idf_weights=idf_weights, embedding_model=embedding_model),
+        curation_decisions,
+    )
 
 
 def _source_paths(source_dir: Path) -> list[Path]:
@@ -229,7 +249,7 @@ def _chunk_text(text: str, chunk_words: int, chunk_overlap: int) -> list[tuple[s
     return chunks
 
 
-def _embed(text: str, *, idf_weights: dict[str, float] | None = None) -> list[float]:
+def _embed_lexical(text: str, *, idf_weights: dict[str, float] | None = None) -> list[float]:
     idf_weights = idf_weights or {}
     vector = [0.0] * VECTOR_DIMENSIONS
     for token in _tokens(text):
@@ -244,22 +264,15 @@ def _embed(text: str, *, idf_weights: dict[str, float] | None = None) -> list[fl
     return [round(value / norm, 8) for value in vector]
 
 
-def embed_text(text: str, *, idf_weights: dict[str, float] | None = None) -> list[float]:
-    return _embed(text, idf_weights=idf_weights)
-
-
-def _idf_weights(texts: list[str]) -> dict[str, float]:
-    if not texts:
-        return {}
-    document_count = len(texts)
-    document_frequencies = {}
-    for text in texts:
-        for token in set(_tokens(text)):
-            document_frequencies[token] = document_frequencies.get(token, 0) + 1
-    return {
-        token: round(math.log((document_count + 1) / (frequency + 1)) + 1, 8)
-        for token, frequency in document_frequencies.items()
-    }
+def embed_text(
+    text: str,
+    *,
+    embedding_model: SemanticEmbeddingModel | None = None,
+    idf_weights: dict[str, float] | None = None,
+) -> list[float]:
+    if embedding_model is not None:
+        return embed_semantic_text(text, embedding_model)
+    return _embed_lexical(text, idf_weights=idf_weights)
 
 
 def _tokens(text: str) -> list[str]:
@@ -314,6 +327,12 @@ def _write_database(database_path: Path, sources: list[SourceRecord], embedding_
             create table term_idf (
               term text primary key,
               idf real not null
+            );
+
+            create table embedding_model (
+              model_name text primary key,
+              dimensions integer not null,
+              payload_json text not null
             );
             """
         )
@@ -375,6 +394,17 @@ def _write_database(database_path: Path, sources: list[SourceRecord], embedding_
             """,
             sorted(embedding_index.idf_weights.items()),
         )
+        connection.execute(
+            """
+            insert into embedding_model (model_name, dimensions, payload_json)
+            values (?, ?, ?)
+            """,
+            (
+                SEMANTIC_MODEL_NAME,
+                VECTOR_DIMENSIONS,
+                json.dumps(model_to_payload(embedding_index.embedding_model), separators=(",", ":")),
+            ),
+        )
 
 
 def _write_manifest(
@@ -383,10 +413,12 @@ def _write_manifest(
     database_path: Path,
     sources: list[SourceRecord],
     chunk_count: int,
+    embedding_model_name: str,
 ) -> None:
     manifest = {
         "source_dir": str(source_dir),
         "database": str(database_path),
+        "embedding_model": embedding_model_name,
         "indexed_sources": len(sources),
         "chunks_indexed": chunk_count,
         "sources": [asdict(source) for source in sources],

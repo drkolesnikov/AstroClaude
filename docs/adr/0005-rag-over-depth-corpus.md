@@ -22,3 +22,17 @@ images.
   are not redistributed.
 - Curation by the depth-not-cookbook rule is ongoing editorial work, not a
   one-time ingest.
+
+## Local semantic embedding model
+
+The selected retrieval model is `local-semantic-lsa-v1`: a small CPU-friendly
+encoder that runs entirely on local text. At ingest time it builds domain
+concept-profile dimensions for the depth-psychology charters, fits a TF-IDF/LSA
+projection over the local corpus, and stores the learned vocabulary, IDF weights,
+concept weights, and projection components inside `corpus/index/corpus.sqlite`.
+Query-time retrieval loads those weights from the SQLite index; it does not call
+the network or download model files.
+
+`numpy` is the runtime numeric dependency for this model. The source corpus and
+generated index remain gitignored, so model weights are cached locally with the
+private corpus rather than redistributed in the repository.
