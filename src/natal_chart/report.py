@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,62 @@ PAGE_GLYPHS = {
     "vocation": "☊",
     "eros": "♀",
     "numinous": "♆",
+}
+
+WHEEL_SIZE = 640
+WHEEL_CENTER = WHEEL_SIZE / 2
+WHEEL_RADII = {
+    "sign_outer": 296,
+    "sign_inner": 252,
+    "sign_label": 274,
+    "house_outer": 246,
+    "house_inner": 176,
+    "house_label": 196,
+    "body_tick": 222,
+    "body_glyph": 206,
+    "aspect": 118,
+}
+
+SIGN_DEFS = [
+    ("Aries", "♈", "fire", 0),
+    ("Taurus", "♉", "earth", 30),
+    ("Gemini", "♊", "air", 60),
+    ("Cancer", "♋", "water", 90),
+    ("Leo", "♌", "fire", 120),
+    ("Virgo", "♍", "earth", 150),
+    ("Libra", "♎", "air", 180),
+    ("Scorpio", "♏", "water", 210),
+    ("Sagittarius", "♐", "fire", 240),
+    ("Capricorn", "♑", "earth", 270),
+    ("Aquarius", "♒", "air", 300),
+    ("Pisces", "♓", "water", 330),
+]
+
+BODY_GLYPHS = {
+    "Sun": "☉",
+    "Moon": "☽",
+    "Mercury": "☿",
+    "Venus": "♀",
+    "Mars": "♂",
+    "Jupiter": "♃",
+    "Saturn": "♄",
+    "Uranus": "♅",
+    "Neptune": "♆",
+    "Pluto": "♇",
+    "Chiron": "⚷",
+    "North Node": "☊",
+    "South Node": "☋",
+    "Ascendant": "ASC",
+    "Descendant": "DSC",
+    "Midheaven": "MC",
+    "Imum Coeli": "IC",
+}
+
+ANGLE_LABELS = {
+    "Ascendant": ("ASC", "asc"),
+    "Descendant": ("DSC", "dsc"),
+    "Midheaven": ("MC", "mc"),
+    "IC": ("IC", "ic"),
 }
 
 
@@ -215,8 +272,41 @@ def _at_a_glance(chart_brief: dict[str, Any]) -> str:
     return "".join(f'<span class="chip">{_e(chip)}</span>' for chip in chips)
 
 
+def chart_wheel_geometry(chart_brief: dict[str, Any]) -> dict[str, Any]:
+    natal = _primary_layer(chart_brief)
+    bodies = natal.get("bodies", [])
+    house_cusps = natal.get("house_cusps", [])
+    ascendant_longitude = _body_longitude("Ascendant", bodies, house_cusps, fallback_house=1)
+    midheaven_longitude = _body_longitude("Midheaven", bodies, house_cusps, fallback_house=10)
+
+    angles = {
+        "Ascendant": ascendant_longitude,
+        "Descendant": (ascendant_longitude + 180) % 360,
+        "Midheaven": midheaven_longitude,
+        "IC": (midheaven_longitude + 180) % 360,
+    }
+    geometry = {
+        "size": WHEEL_SIZE,
+        "center": {"x": WHEEL_CENTER, "y": WHEEL_CENTER},
+        "ascendant_longitude": ascendant_longitude,
+        "angles": {
+            name: {
+                "longitude": longitude,
+                "screen_angle": _round(_screen_angle(longitude, ascendant_longitude)),
+                **_point(_screen_angle(longitude, ascendant_longitude), WHEEL_RADII["house_outer"]),
+            }
+            for name, longitude in angles.items()
+        },
+        "signs": _sign_geometry(ascendant_longitude),
+        "houses": _house_geometry(house_cusps, ascendant_longitude),
+        "aspects": _aspect_geometry(natal.get("aspects", []), bodies, ascendant_longitude),
+        "bodies": _body_geometry(bodies, ascendant_longitude),
+    }
+    return geometry
+
+
 def _chart_tables(chart_brief: dict[str, Any]) -> str:
-    sections = []
+    sections = [_chart_wheel(chart_brief)]
     for layer in chart_brief.get("layers", []):
         title = str(layer["name"]).replace("_", " ").title()
         sections.append(f"<h3>{_e(title)} Layer</h3>")
@@ -231,6 +321,302 @@ def _chart_tables(chart_brief: dict[str, Any]) -> str:
             )
             sections.append(f"<h4>Configurations</h4><ul>{items}</ul>")
     return "\n".join(sections)
+
+
+def _chart_wheel(chart_brief: dict[str, Any]) -> str:
+    geometry = chart_wheel_geometry(chart_brief)
+    center = geometry["center"]
+    svg_parts = [
+        '<svg class="wheel-svg" viewBox="0 0 640 640" role="img" aria-label="Natal chart wheel">',
+        '<circle class="wheel-background" cx="320" cy="320" r="302"></circle>',
+    ]
+    for sign in geometry["signs"]:
+        svg_parts.append(
+            f'<path class="sign-sector sign-{_e(sign["element"])}" data-sign="{_e(sign["name"])}" '
+            f'd="{_e(sign["path"])}"></path>'
+        )
+    svg_parts.append('<circle class="house-ring" cx="320" cy="320" r="246"></circle>')
+    svg_parts.append('<circle class="aspect-hub" cx="320" cy="320" r="118"></circle>')
+    for house in geometry["houses"]:
+        svg_parts.append(
+            '<line class="house-cusp" '
+            f'data-house="{house["house"]}" x1="{_fmt(house["inner_x"])}" y1="{_fmt(house["inner_y"])}" '
+            f'x2="{_fmt(house["outer_x"])}" y2="{_fmt(house["outer_y"])}"></line>'
+        )
+        svg_parts.append(
+            f'<text class="house-number" x="{_fmt(house["label_x"])}" y="{_fmt(house["label_y"])}">'
+            f'{house["house"]}</text>'
+        )
+    for name, angle in geometry["angles"].items():
+        label, class_name = ANGLE_LABELS[name]
+        svg_parts.append(
+            f'<line class="angle-axis angle-{class_name}" x1="{_fmt(center["x"])}" y1="{_fmt(center["y"])}" '
+            f'x2="{_fmt(angle["x"])}" y2="{_fmt(angle["y"])}"></line>'
+        )
+        label_point = _point(angle["screen_angle"], WHEEL_RADII["house_outer"] + 20)
+        svg_parts.append(
+            f'<text class="angle-label angle-{class_name}-label" x="{_fmt(label_point["x"])}" '
+            f'y="{_fmt(label_point["y"])}">{label}</text>'
+        )
+    for aspect in geometry["aspects"]:
+        svg_parts.append(
+            f'<line class="aspect-line aspect-{_e(aspect["class_name"])}" '
+            f'data-aspect="{_e(aspect["aspect"])}" x1="{_fmt(aspect["x1"])}" y1="{_fmt(aspect["y1"])}" '
+            f'x2="{_fmt(aspect["x2"])}" y2="{_fmt(aspect["y2"])}"></line>'
+        )
+    for body in geometry["bodies"]:
+        if body["connector"]:
+            svg_parts.append(
+                f'<line class="body-connector" data-body="{_e(body["name"])}" '
+                f'x1="{_fmt(body["tick_x"])}" y1="{_fmt(body["tick_y"])}" '
+                f'x2="{_fmt(body["glyph_x"])}" y2="{_fmt(body["glyph_y"])}"></line>'
+            )
+        svg_parts.append(
+            f'<circle class="body-tick" data-body="{_e(body["name"])}" '
+            f'cx="{_fmt(body["tick_x"])}" cy="{_fmt(body["tick_y"])}" r="3.4"></circle>'
+        )
+    svg_parts.append("</svg>")
+
+    overlays = []
+    for sign in geometry["signs"]:
+        overlays.append(
+            '<div class="glyph-overlay sign-symbol" '
+            f'aria-label="{_e(sign["name"])}" style="--x: {_percent(sign["glyph_x"])}; --y: {_percent(sign["glyph_y"])};">'
+            f'{_symbol(sign["glyph"])}</div>'
+        )
+    for body in geometry["bodies"]:
+        retrograde = '<span class="retrograde">R</span>' if body["retrograde"] else ""
+        overlays.append(
+            '<div class="glyph-overlay planet-symbol" '
+            f'data-body="{_e(body["name"])}" aria-label="{_e(body["name"])} {_e(_degree_label(body["degree"]))}" '
+            f'style="--x: {_percent(body["glyph_x"])}; --y: {_percent(body["glyph_y"])};">'
+            f'<span class="planet-glyph">{_symbol(body["glyph"])}</span>'
+            f'<span class="degree-label">{_e(_degree_label(body["degree"]))}{retrograde}</span>'
+            "</div>"
+        )
+    return (
+        '<section class="chart-wheel-frame">'
+        '<div class="wheel-plot">'
+        + "".join(svg_parts)
+        + '<div class="glyph-layer">'
+        + "".join(overlays)
+        + "</div></div>"
+        "</section>"
+    )
+
+
+def _sign_geometry(ascendant_longitude: float) -> list[dict[str, Any]]:
+    signs = []
+    for name, glyph, element, start in SIGN_DEFS:
+        end = (start + 30) % 360
+        label_point = _point(_screen_angle(start + 15, ascendant_longitude), WHEEL_RADII["sign_label"])
+        signs.append(
+            {
+                "name": name,
+                "glyph": glyph,
+                "element": element,
+                "start_longitude": start,
+                "end_longitude": end,
+                "path": _donut_sector_path(start, start + 30, ascendant_longitude),
+                "glyph_x": label_point["x"],
+                "glyph_y": label_point["y"],
+            }
+        )
+    return signs
+
+
+def _house_geometry(house_cusps: list[dict[str, Any]], ascendant_longitude: float) -> list[dict[str, Any]]:
+    if not house_cusps:
+        return []
+    ordered = sorted(house_cusps, key=lambda cusp: int(cusp["house"]))
+    houses = []
+    for index, cusp in enumerate(ordered):
+        longitude = float(cusp["longitude"])
+        angle = _screen_angle(longitude, ascendant_longitude)
+        inner = _point(angle, WHEEL_RADII["house_inner"])
+        outer = _point(angle, WHEEL_RADII["house_outer"])
+        next_longitude = float(ordered[(index + 1) % len(ordered)]["longitude"])
+        span = (next_longitude - longitude) % 360
+        if len(ordered) == 1 or span == 0:
+            span = 30
+        label = _point(_screen_angle(longitude + span / 2, ascendant_longitude), WHEEL_RADII["house_label"])
+        houses.append(
+            {
+                "house": int(cusp["house"]),
+                "longitude": longitude,
+                "screen_angle": _round(angle),
+                "inner_x": inner["x"],
+                "inner_y": inner["y"],
+                "outer_x": outer["x"],
+                "outer_y": outer["y"],
+                "label_x": label["x"],
+                "label_y": label["y"],
+            }
+        )
+    return houses
+
+
+def _aspect_geometry(
+    aspects: list[dict[str, Any]],
+    bodies: list[dict[str, Any]],
+    ascendant_longitude: float,
+) -> list[dict[str, Any]]:
+    body_by_name = {body["name"]: body for body in bodies}
+    lines = []
+    for aspect in aspects:
+        body_a = body_by_name.get(aspect.get("body_a"))
+        body_b = body_by_name.get(aspect.get("body_b"))
+        if not body_a or not body_b:
+            continue
+        start = _point(_screen_angle(float(body_a["longitude"]), ascendant_longitude), WHEEL_RADII["aspect"])
+        end = _point(_screen_angle(float(body_b["longitude"]), ascendant_longitude), WHEEL_RADII["aspect"])
+        aspect_name = str(aspect["aspect"])
+        lines.append(
+            {
+                "aspect": aspect_name,
+                "class_name": _class_name(aspect_name),
+                "x1": start["x"],
+                "y1": start["y"],
+                "x2": end["x"],
+                "y2": end["y"],
+            }
+        )
+    return lines
+
+
+def _body_geometry(bodies: list[dict[str, Any]], ascendant_longitude: float) -> list[dict[str, Any]]:
+    clusters = _body_clusters(bodies)
+    plotted = []
+    for cluster in clusters:
+        offsets = _radius_offsets(len(cluster))
+        for body, offset in zip(cluster, offsets, strict=True):
+            longitude = float(body["longitude"])
+            screen_angle = _screen_angle(longitude, ascendant_longitude)
+            tick = _point(screen_angle, WHEEL_RADII["body_tick"])
+            glyph = _point(screen_angle, WHEEL_RADII["body_glyph"] + offset)
+            speed = body.get("speed")
+            plotted.append(
+                {
+                    "name": str(body["name"]),
+                    "glyph": BODY_GLYPHS.get(str(body["name"]), str(body["name"])[:2].upper()),
+                    "longitude": longitude,
+                    "degree": float(body.get("degree", longitude % 30)),
+                    "screen_angle": _round(screen_angle),
+                    "tick_x": tick["x"],
+                    "tick_y": tick["y"],
+                    "glyph_x": glyph["x"],
+                    "glyph_y": glyph["y"],
+                    "connector": len(cluster) > 1 or offset != 0,
+                    "retrograde": isinstance(speed, (float, int)) and speed < 0,
+                }
+            )
+    return sorted(plotted, key=lambda body: body["name"])
+
+
+def _body_clusters(bodies: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    if not bodies:
+        return []
+    ordered = sorted(bodies, key=lambda body: float(body["longitude"]) % 360)
+    clusters: list[list[dict[str, Any]]] = [[ordered[0]]]
+    for body in ordered[1:]:
+        previous = clusters[-1][-1]
+        if _zodiac_distance(float(previous["longitude"]), float(body["longitude"])) <= 8:
+            clusters[-1].append(body)
+        else:
+            clusters.append([body])
+    if len(clusters) > 1 and _zodiac_distance(float(clusters[0][0]["longitude"]), float(clusters[-1][-1]["longitude"])) <= 8:
+        clusters[0] = clusters[-1] + clusters[0]
+        clusters.pop()
+    return clusters
+
+
+def _radius_offsets(count: int) -> list[float]:
+    if count <= 1:
+        return [0]
+    midpoint = (count - 1) / 2
+    return [(index - midpoint) * 30 for index in range(count)]
+
+
+def _body_longitude(
+    name: str,
+    bodies: list[dict[str, Any]],
+    house_cusps: list[dict[str, Any]],
+    *,
+    fallback_house: int,
+) -> float:
+    aliases = {
+        "Ascendant": {"ascendant", "asc"},
+        "Midheaven": {"midheaven", "mc"},
+    }
+    accepted = aliases.get(name, {name.lower()})
+    for body in bodies:
+        if str(body.get("name", "")).lower() in accepted:
+            return float(body["longitude"])
+    for cusp in house_cusps:
+        if int(cusp["house"]) == fallback_house:
+            return float(cusp["longitude"])
+    raise ValueError(f"chart brief is missing {name} longitude")
+
+
+def _screen_angle(longitude: float, ascendant_longitude: float) -> float:
+    return (ascendant_longitude + 180 - longitude) % 360
+
+
+def _point(screen_angle: float, radius: float) -> dict[str, float]:
+    radians = math.radians(screen_angle)
+    return {
+        "x": _round(WHEEL_CENTER + math.cos(radians) * radius),
+        "y": _round(WHEEL_CENTER + math.sin(radians) * radius),
+    }
+
+
+def _donut_sector_path(start_longitude: float, end_longitude: float, ascendant_longitude: float) -> str:
+    start_angle = _screen_angle(start_longitude, ascendant_longitude)
+    end_angle = _screen_angle(end_longitude, ascendant_longitude)
+    start_outer = _point(start_angle, WHEEL_RADII["sign_outer"])
+    end_outer = _point(end_angle, WHEEL_RADII["sign_outer"])
+    end_inner = _point(end_angle, WHEEL_RADII["sign_inner"])
+    start_inner = _point(start_angle, WHEEL_RADII["sign_inner"])
+    arc_size = (end_longitude - start_longitude) % 360
+    large_arc = 1 if arc_size > 180 else 0
+    return (
+        f"M {_fmt(start_outer['x'])} {_fmt(start_outer['y'])} "
+        f"A {WHEEL_RADII['sign_outer']} {WHEEL_RADII['sign_outer']} 0 {large_arc} 0 "
+        f"{_fmt(end_outer['x'])} {_fmt(end_outer['y'])} "
+        f"L {_fmt(end_inner['x'])} {_fmt(end_inner['y'])} "
+        f"A {WHEEL_RADII['sign_inner']} {WHEEL_RADII['sign_inner']} 0 {large_arc} 1 "
+        f"{_fmt(start_inner['x'])} {_fmt(start_inner['y'])} Z"
+    )
+
+
+def _zodiac_distance(a: float, b: float) -> float:
+    distance = abs((a - b) % 360)
+    return min(distance, 360 - distance)
+
+
+def _round(value: float) -> float:
+    return round(value, 3)
+
+
+def _fmt(value: float) -> str:
+    return f"{value:.3f}".rstrip("0").rstrip(".")
+
+
+def _percent(value: float) -> str:
+    return f"{value / WHEEL_SIZE * 100:.4f}%"
+
+
+def _symbol(glyph: str) -> str:
+    text = glyph + "\ufe0e" if len(glyph) == 1 else glyph
+    return _e(text)
+
+
+def _degree_label(value: float) -> str:
+    return f"{_fmt(round(value, 1))}°"
+
+
+def _class_name(value: str) -> str:
+    return "".join(character if character.isalnum() else "-" for character in value.lower()).strip("-")
 
 
 def _table(headers: list[str], rows: list[dict[str, Any]]) -> str:
@@ -315,7 +701,7 @@ body { margin: 0; background: var(--ivory); color: var(--ink); font-family: var(
   color: #eee9fa; background: linear-gradient(155deg, var(--night), var(--night-2) 58%, #0d1235);
   border-right: 1px solid rgba(185, 139, 66, .36);
 }
-.brand-kicker { color: var(--gold); font: 700 11px/1 var(--ui); letter-spacing: .24em; text-transform: uppercase; }
+.brand-kicker { color: var(--gold); font: 700 11px/1 var(--ui); letter-spacing: 0; text-transform: uppercase; }
 .brand h1 { font: 600 36px/1 var(--display); margin: 10px 0 8px; color: white; }
 .brand p { margin: 8px 0; color: #c6bfdc; font: 12px/1.45 var(--ui); }
 .monogram {
@@ -327,7 +713,7 @@ body { margin: 0; background: var(--ivory); color: var(--ink); font-family: var(
 .badges { margin: 18px 0 24px; }
 .badge, .chip {
   border: 1px solid rgba(185, 139, 66, .45); border-radius: 999px; padding: 6px 10px;
-  font: 700 10px/1 var(--ui); letter-spacing: .08em; text-transform: uppercase;
+  font: 700 10px/1 var(--ui); letter-spacing: 0; text-transform: uppercase;
 }
 .badge { color: #d7b976; }
 .chip { color: #5f5576; background: var(--paper); }
@@ -350,39 +736,86 @@ body { margin: 0; background: var(--ivory); color: var(--ink); font-family: var(
   width: 56px; height: 56px; display: grid; place-items: center; border-radius: 50%;
   border: 1px solid var(--gold); color: var(--gold); background: var(--paper); font-size: 28px;
 }
-.page-header p { margin: 16px 0 6px; color: var(--gold); font: 700 11px/1 var(--ui); letter-spacing: .18em; text-transform: uppercase; }
+.page-header p { margin: 16px 0 6px; color: var(--gold); font: 700 11px/1 var(--ui); letter-spacing: 0; text-transform: uppercase; }
 .page-header h2 { margin: 0; font: 600 54px/1 var(--display); }
-.prose { background: var(--paper); border: 1px solid var(--line); padding: 34px; font-size: 20px; line-height: 1.72; }
-.prose h1, .prose h2, .prose h3 { font-family: var(--display); line-height: 1.08; }
-.prose h1 { font-size: 42px; }
-.prose h2 { font-size: 32px; }
-.prose h3 { font-size: 25px; }
-.prose blockquote { border-left: 3px solid var(--gold); margin: 24px 0; padding: 4px 0 4px 22px; color: var(--muted); font-style: italic; }
-.prose table { width: 100%; border-collapse: collapse; margin: 20px 0; font: 14px/1.35 var(--ui); }
-.prose th { color: #8b662e; text-align: left; text-transform: uppercase; letter-spacing: .08em; font-size: 11px; border-bottom: 2px solid var(--gold); padding: 9px; }
-.prose td { border-bottom: 1px solid var(--line); padding: 9px; }
-.prose hr { border: 0; height: 1px; background: linear-gradient(90deg, transparent, var(--line), transparent); margin: 32px 0; }
+	.prose { background: var(--paper); border: 1px solid var(--line); padding: 34px; font-size: 20px; line-height: 1.72; }
+	.prose h1, .prose h2, .prose h3 { font-family: var(--display); line-height: 1.08; }
+	.prose h1 { font-size: 42px; }
+	.prose h2 { font-size: 32px; }
+	.prose h3 { font-size: 25px; }
+	.prose blockquote { border-left: 3px solid var(--gold); margin: 24px 0; padding: 4px 0 4px 22px; color: var(--muted); font-style: italic; }
+	.chart-wheel-frame { margin: 4px 0 34px; }
+	.wheel-plot {
+	  position: relative; width: min(100%, 640px); aspect-ratio: 1 / 1; margin: 0 auto 14px;
+	}
+	.wheel-svg { width: 100%; height: 100%; display: block; overflow: visible; }
+	.wheel-background { fill: #fffdf7; stroke: var(--line); stroke-width: 1.2; }
+	.sign-sector { stroke: #fffaf0; stroke-width: 1.4; }
+	.sign-fire { fill: #f1d1bd; }
+	.sign-earth { fill: #d9dfc8; }
+	.sign-air { fill: #d5e4ec; }
+	.sign-water { fill: #d8d3ec; }
+	.house-ring, .aspect-hub {
+	  fill: none; stroke: rgba(43, 37, 64, .18); stroke-width: 1.2;
+	}
+	.house-cusp { stroke: rgba(43, 37, 64, .42); stroke-width: 1; }
+	.house-number, .angle-label {
+	  fill: var(--muted); text-anchor: middle; dominant-baseline: central; font: 700 12px/1 var(--ui);
+	}
+	.angle-axis { stroke: var(--gold); stroke-width: 1.7; stroke-linecap: round; }
+	.angle-dsc, .angle-ic { opacity: .62; }
+	.aspect-line { stroke-width: 1.6; stroke-linecap: round; opacity: .7; }
+	.aspect-conjunction { stroke: #6f6685; }
+	.aspect-opposition, .aspect-square { stroke: #9b4f53; }
+	.aspect-trine, .aspect-sextile { stroke: #4f7c7c; }
+	.body-connector { stroke: rgba(43, 37, 64, .36); stroke-width: .9; stroke-dasharray: 3 4; }
+	.body-tick { fill: var(--ink); stroke: var(--paper); stroke-width: 1; }
+	.glyph-layer { position: absolute; inset: 0; pointer-events: none; }
+	.glyph-overlay {
+	  position: absolute; left: var(--x); top: var(--y); transform: translate(-50%, -50%);
+	  color: var(--ink); text-align: center; white-space: nowrap; font-variant-emoji: text;
+	  font-family: "Apple Symbols", "Noto Sans Symbols 2", "Segoe UI Symbol", "DejaVu Sans", sans-serif;
+	}
+	.sign-symbol { color: #4c435f; font-size: 20px; line-height: 1; }
+	.planet-symbol {
+	  min-width: 46px; display: grid; place-items: center; gap: 2px; padding: 2px 4px;
+	  border-radius: 6px; background: rgba(255, 250, 240, .76);
+	}
+	.planet-glyph { font-size: 22px; line-height: 1; }
+	.degree-label { color: var(--muted); font: 700 9px/1 var(--ui); }
+	.retrograde { color: #9b4f53; margin-left: 2px; }
+	.prose table { width: 100%; border-collapse: collapse; margin: 20px 0; font: 14px/1.35 var(--ui); }
+	.prose th { color: #8b662e; text-align: left; text-transform: uppercase; letter-spacing: 0; font-size: 11px; border-bottom: 2px solid var(--gold); padding: 9px; }
+	.prose td { border-bottom: 1px solid var(--line); padding: 9px; }
+	.prose hr { border: 0; height: 1px; background: linear-gradient(90deg, transparent, var(--line), transparent); margin: 32px 0; }
 .pager { display: flex; justify-content: space-between; gap: 20px; margin-top: 28px; }
 .pager button {
   border: 1px solid var(--line); background: var(--paper); color: var(--muted); padding: 10px 14px;
   font: 700 12px/1 var(--ui); cursor: pointer;
 }
 .pager button:hover { color: var(--ink); border-color: var(--gold); }
-@media (max-width: 760px) {
-  .app-shell { display: block; }
-  .sidebar { transform: translateX(-100%); transition: transform .2s ease; z-index: 4; width: 280px; }
-  .sidebar.open { transform: translateX(0); }
-  .main { width: 100%; margin-left: 0; }
+	@media (max-width: 760px) {
+	  html, body { overflow-x: hidden; }
+	  .app-shell { display: block; }
+	  .sidebar { transform: translateX(-100%); transition: transform .2s ease; z-index: 4; width: 280px; }
+	  .sidebar.open { transform: translateX(0); }
+	  .main { width: 100%; margin-left: 0; }
   .topbar {
     display: flex; gap: 12px; align-items: center; position: sticky; top: 0; z-index: 3;
     padding: 12px 16px; color: white; background: var(--night);
-  }
-  .menu-button { border: 0; background: transparent; color: var(--gold); font-size: 22px; }
-  .cover-note, .report-page { padding: 24px 18px 70px; }
-  .page-header h2 { font-size: 38px; }
-  .prose { padding: 22px; font-size: 18px; }
-}
-"""
+	  }
+	  .menu-button { border: 0; background: transparent; color: var(--gold); font-size: 22px; }
+	  .cover-note, .report-page { width: 100%; max-width: 100%; margin: 0; padding: 24px 18px 70px; }
+	  .page-header h2 { font-size: 38px; }
+	  .badge, .chip { max-width: 100%; white-space: normal; overflow-wrap: anywhere; line-height: 1.2; }
+	  .prose { max-width: 100%; overflow-x: hidden; padding: 22px; font-size: 18px; }
+	  .prose table { display: block; max-width: 100%; overflow-x: auto; }
+	  .wheel-plot { width: min(250px, 100%); max-width: 250px; }
+	  .planet-symbol { min-width: 30px; padding: 1px 2px; }
+	  .planet-glyph { font-size: 18px; }
+	  .sign-symbol { font-size: 18px; }
+	}
+	"""
 
 
 def _js() -> str:
