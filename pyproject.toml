@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
   "geonamescache>=3.0.0",
   "kerykeion>=5.0.0",
+  "markdown>=3.6",
   "numpy>=2.0.0",
   "pypdf>=6.0.0",
   "timezonefinder>=8.0.0",
@@ -15,6 +16,7 @@ dependencies = [
 [project.scripts]
 compute_chart = "natal_chart.cli:main"
 ingest_corpus = "natal_chart.corpus_cli:main"
+render_report = "natal_chart.report_cli:main"
 
 [dependency-groups]
 dev = [
