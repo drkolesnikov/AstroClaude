@@ -1,9 +1,10 @@
 # Natal Chart Method Sandbox
 
-This repository is a Claude Code-native research sandbox. The full orchestration
-brief will live in `AGENTS.md`; when that file exists, load it before attempting
-an end-to-end run.
+This repository is a Claude Code-native research sandbox. The orchestration brief
+lives in `AGENTS.md` — **load it before performing an end-to-end run**. It tells
+you how to compute the chart, fan out the structure agents, run the interpreter,
+and assemble the dossier.
 
-For now, the deterministic boundary is the main rule: use the in-repo
-`compute_chart` tool to produce the exact chart brief, and never ask an LLM to
-compute planetary positions, houses, aspects, or configurations.
+The deterministic boundary is the main rule: use the in-repo `compute_chart` tool
+to produce the exact chart brief, and never ask an LLM to compute planetary
+positions, houses, aspects, or configurations.
