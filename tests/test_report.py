@@ -1,8 +1,10 @@
 import json
+import math
 import tomllib
 import textwrap
 from pathlib import Path
 
+import natal_chart.report as report_module
 from natal_chart.models import (
     Aspect,
     BodyPosition,
@@ -50,7 +52,7 @@ def _report_brief() -> ChartBrief:
             BodyPosition(name="Ascendant", longitude=122.0, sign="Leo", degree=2.0, house=1, speed=None),
             BodyPosition(name="Midheaven", longitude=28.0, sign="Aries", degree=28.0, house=10, speed=None),
             BodyPosition(name="Mercury", longitude=260.0, sign="Sagittarius", degree=20.0, house=6, speed=0.8),
-            BodyPosition(name="Saturn", longitude=264.0, sign="Sagittarius", degree=24.0, house=6, speed=0.05),
+            BodyPosition(name="Saturn", longitude=264.0, sign="Sagittarius", degree=24.0, house=6, speed=-0.05),
         ],
         house_cusps=[
             HouseCusp(house=1, longitude=122.0, sign="Leo", degree=2.0),
@@ -173,3 +175,63 @@ def test_render_report_writes_navigable_html_from_run_artifacts(tmp_path):
     chart_json = json.loads((run_dir / "chart-brief.json").read_text(encoding="utf-8"))
     for body in chart_json["layers"][0]["bodies"]:
         assert f"<td>{body['name']}</td>" in html
+
+
+def test_chart_wheel_geometry_orients_ascendant_left_and_midheaven_top():
+    geometry = report_module.chart_wheel_geometry(_report_brief().to_dict())
+
+    center = geometry["center"]
+    ascendant = geometry["angles"]["Ascendant"]
+    midheaven = geometry["angles"]["Midheaven"]
+
+    assert ascendant["screen_angle"] == 180
+    assert ascendant["x"] < center["x"] - 130
+    assert abs(ascendant["y"] - center["y"]) < 1
+    assert 270 <= midheaven["screen_angle"] <= 278
+    assert midheaven["y"] < center["y"] - 130
+    assert abs(midheaven["x"] - center["x"]) < 20
+
+
+def test_chart_wheel_geometry_declusters_stellium_glyphs_without_moving_true_angles():
+    geometry = report_module.chart_wheel_geometry(_report_brief().to_dict())
+    bodies = {body["name"]: body for body in geometry["bodies"]}
+    stellium = [bodies[name] for name in ("Sun", "Mercury", "Saturn")]
+
+    for body in stellium:
+        assert math.isclose(
+            body["screen_angle"],
+            (geometry["ascendant_longitude"] + 180 - body["longitude"]) % 360,
+            abs_tol=0.001,
+        )
+        assert body["connector"], f"{body['name']} should keep a connector to its exact tick"
+
+    for index, body in enumerate(stellium):
+        for other in stellium[index + 1 :]:
+            distance = math.dist((body["glyph_x"], body["glyph_y"]), (other["glyph_x"], other["glyph_y"]))
+            assert distance >= 26, f"{body['name']} and {other['name']} glyphs collide"
+
+
+def test_render_report_includes_scaling_monochrome_chart_wheel(tmp_path):
+    run_dir = _complete_run(tmp_path)
+
+    html = render_report(run_dir).read_text(encoding="utf-8")
+
+    assert 'class="chart-wheel-frame"' in html
+    assert 'class="wheel-svg"' in html
+    assert 'viewBox="0 0 640 640"' in html
+    assert 'class="sign-sector sign-fire"' in html
+    assert 'class="house-cusp"' in html
+    assert 'class="angle-axis angle-asc"' in html
+    assert 'class="aspect-line aspect-sextile"' in html
+    assert 'class="body-tick"' in html
+    assert 'class="glyph-overlay planet-symbol"' in html
+    assert 'class="glyph-overlay sign-symbol"' in html
+    assert "font-variant-emoji: text" in html
+    assert "☉\ufe0e" in html
+    assert "☽\ufe0e" in html
+    assert "♄\ufe0e" in html
+    assert "♈\ufe0e" in html
+    assert 'data-body="Sun"' in html
+    assert "R" in html
+    assert "@media (max-width: 760px)" in html
+    assert "aspect-ratio: 1 / 1" in html
