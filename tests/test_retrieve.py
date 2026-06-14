@@ -45,6 +45,34 @@ def test_retrieve_passages_returns_ranked_depth_corpus_passages(tmp_path):
     assert "Saturn images authority" in result.passages[0].text
 
 
+def test_retrieval_weights_charter_specific_terms_above_ubiquitous_depth_terms(tmp_path):
+    source_dir = tmp_path / "sources"
+    index_dir = tmp_path / "index"
+    source_dir.mkdir()
+    (source_dir / "Dense Author — Generic Depth Vocabulary.txt").write_text(
+        "psyche archetype image complex soul individuation chart symbol meaning pattern " * 320,
+        encoding="utf-8",
+    )
+    (source_dir / "Focused Author — Saturn Boundary.txt").write_text(
+        "saturn boundary authority discipline necessity fear law time " * 30,
+        encoding="utf-8",
+    )
+    (source_dir / "Other Author — Eros.txt").write_text(
+        "eros desire intimacy beloved union venus appetite " * 30,
+        encoding="utf-8",
+    )
+    ingest_corpus(source_dir=source_dir, index_dir=index_dir, chunk_words=80, chunk_overlap=0)
+
+    result = retrieve_passages(
+        index_dir=index_dir,
+        charter="shadow",
+        query="charter shadow psyche archetype image complex soul saturn boundary discipline",
+        top_k=3,
+    )
+
+    assert result.passages[0].filename == "Focused Author — Saturn Boundary.txt"
+
+
 def test_retrieve_amplification_returns_mythic_material_for_key_images(tmp_path):
     source_dir = tmp_path / "sources"
     index_dir = tmp_path / "index"
