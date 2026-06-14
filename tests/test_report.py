@@ -235,3 +235,35 @@ def test_render_report_includes_scaling_monochrome_chart_wheel(tmp_path):
     assert "R" in html
     assert "@media (max-width: 760px)" in html
     assert "aspect-ratio: 1 / 1" in html
+
+
+def test_render_report_is_self_contained_and_documents_offline_guarantee(tmp_path):
+    run_dir = _complete_run(tmp_path)
+
+    html = render_report(run_dir).read_text(encoding="utf-8")
+
+    assert "https://" not in html
+    assert "http://" not in html
+    assert "rel=\"preconnect\"" not in html
+    assert html.count("data:font/") >= 3
+    assert "font-family: 'NatalReportDisplay'" in html
+    assert "font-family: 'NatalReportBody'" in html
+    assert "font-family: 'NatalReportSymbols'" in html
+    assert "--display: 'NatalReportDisplay'" in html
+    assert "--body: 'NatalReportBody'" in html
+    assert "--symbol: 'NatalReportSymbols'" in html
+    assert "offline-portable" in (report_module.render_report.__doc__ or "").lower()
+
+
+def test_render_report_print_styles_render_all_pages_without_navigation(tmp_path):
+    run_dir = _complete_run(tmp_path)
+
+    html = render_report(run_dir).read_text(encoding="utf-8")
+
+    assert "@media print" in html
+    assert "@page" in html
+    assert ".sidebar, .topbar, .cover-note, .pager { display: none !important; }" in html
+    assert ".report-page { display: block !important;" in html
+    assert "break-before: page" in html
+    assert "page-break-before: always" in html
+    assert "break-inside: avoid" in html

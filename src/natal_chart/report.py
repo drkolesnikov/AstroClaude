@@ -1,8 +1,18 @@
+"""Offline-portable HTML report renderer.
+
+render_report writes a self-contained ``report/index.html`` with display, body,
+and symbol fonts inlined as data URLs. If an offline font cannot be found, the
+tool fails loudly instead of falling back to default serif or colour-emoji
+rendering.
+"""
+
 from __future__ import annotations
 
+import base64
 import html
 import json
 import math
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -92,6 +102,43 @@ ANGLE_LABELS = {
     "IC": ("IC", "ic"),
 }
 
+REPORT_FONT_SPECS = [
+    (
+        "NatalReportDisplay",
+        "NATAL_REPORT_DISPLAY_FONT",
+        [
+            Path("/System/Library/Fonts/Supplemental/Georgia.ttf"),
+            Path("/System/Library/Fonts/Palatino.ttc"),
+            Path("/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf"),
+            Path("/usr/share/fonts/truetype/liberation2/LiberationSerif-Regular.ttf"),
+            Path("C:/Windows/Fonts/georgia.ttf"),
+        ],
+    ),
+    (
+        "NatalReportBody",
+        "NATAL_REPORT_BODY_FONT",
+        [
+            Path("/System/Library/Fonts/Supplemental/Times New Roman.ttf"),
+            Path("/System/Library/Fonts/Supplemental/Georgia.ttf"),
+            Path("/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf"),
+            Path("/usr/share/fonts/truetype/liberation2/LiberationSerif-Regular.ttf"),
+            Path("C:/Windows/Fonts/times.ttf"),
+        ],
+    ),
+    (
+        "NatalReportSymbols",
+        "NATAL_REPORT_SYMBOL_FONT",
+        [
+            Path("/System/Library/Fonts/Apple Symbols.ttf"),
+            Path("/System/Library/Fonts/Symbol.ttf"),
+            Path("/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf"),
+            Path("/usr/share/fonts/truetype/noto/NotoSansSymbols-Regular.ttf"),
+            Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+            Path("C:/Windows/Fonts/seguisym.ttf"),
+        ],
+    ),
+]
+
 
 @dataclass(frozen=True)
 class ReportPage:
@@ -102,6 +149,7 @@ class ReportPage:
 
 
 def render_report(run_dir: str | Path) -> Path:
+    """Render an offline-portable, self-contained HTML dossier for a completed run."""
     run_dir = Path(run_dir)
     provenance = _read_json(run_dir / "provenance.json")
     chart_brief = _read_json(run_dir / "chart-brief.json")
@@ -172,10 +220,7 @@ def _document_html(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{_e(native)} · Natal Chart Dossier</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=EB+Garamond:wght@400;500;600&display=swap" rel="stylesheet">
-<style>{_css()}</style>
+<style>{_font_faces_css()}{_css()}</style>
 </head>
 <body>
 <div class="app-shell">
@@ -678,6 +723,49 @@ def _e(value: str) -> str:
     return html.escape(value, quote=True)
 
 
+def _font_faces_css() -> str:
+    faces = []
+    for family, env_var, candidates in REPORT_FONT_SPECS:
+        font_path = _resolve_report_font(env_var, candidates)
+        encoded = base64.b64encode(font_path.read_bytes()).decode("ascii")
+        mime_type, format_name = _font_data_type(font_path)
+        faces.append(
+            "@font-face { "
+            f"font-family: '{family}'; "
+            f"src: url(data:{mime_type};base64,{encoded}) format('{format_name}'); "
+            "font-style: normal; font-weight: 400; font-display: block; "
+            "}"
+        )
+    return "\n".join(faces) + "\n"
+
+
+def _resolve_report_font(env_var: str, candidates: list[Path]) -> Path:
+    override = os.environ.get(env_var)
+    if override:
+        path = Path(override).expanduser()
+        if path.exists():
+            return path
+        raise FileNotFoundError(f"{env_var} points to a missing offline report font: {path}")
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    searched = ", ".join(str(candidate) for candidate in candidates)
+    raise FileNotFoundError(f"Offline report font not found for {env_var}; searched {searched}")
+
+
+def _font_data_type(path: Path) -> tuple[str, str]:
+    suffix = path.suffix.lower()
+    if suffix == ".otf":
+        return "font/otf", "opentype"
+    if suffix == ".ttc":
+        return "font/collection", "truetype-collection"
+    if suffix == ".woff":
+        return "font/woff", "woff"
+    if suffix == ".woff2":
+        return "font/woff2", "woff2"
+    return "font/ttf", "truetype"
+
+
 def _css() -> str:
     return """
 :root {
@@ -689,8 +777,9 @@ def _css() -> str:
   --ink: #2b2540;
   --muted: #6f6685;
   --line: #e4d8bf;
-  --display: 'Cormorant Garamond', Georgia, serif;
-  --body: 'EB Garamond', Georgia, serif;
+  --display: 'NatalReportDisplay';
+  --body: 'NatalReportBody';
+  --symbol: 'NatalReportSymbols';
   --ui: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 * { box-sizing: border-box; }
@@ -724,7 +813,7 @@ body { margin: 0; background: var(--ivory); color: var(--ink); font-family: var(
   font: 13px/1.2 var(--ui); text-align: left; cursor: pointer;
 }
 .nav-link:hover, .nav-link.active { color: white; background: rgba(255,255,255,.06); border-left-color: var(--gold); }
-.nav-link span { width: 18px; color: var(--gold); text-align: center; }
+.nav-link span { width: 18px; color: var(--gold); text-align: center; font-family: var(--symbol); font-variant-emoji: text; }
 .main { margin-left: 292px; width: calc(100% - 292px); }
 .topbar { display: none; }
 .cover-note { max-width: 860px; margin: 0 auto; padding: 46px 42px 0; }
@@ -734,7 +823,7 @@ body { margin: 0; background: var(--ivory); color: var(--ink); font-family: var(
 .page-header { margin: 0 0 30px; border-bottom: 1px solid var(--line); padding-bottom: 24px; }
 .page-glyph {
   width: 56px; height: 56px; display: grid; place-items: center; border-radius: 50%;
-  border: 1px solid var(--gold); color: var(--gold); background: var(--paper); font-size: 28px;
+  border: 1px solid var(--gold); color: var(--gold); background: var(--paper); font: 28px/1 var(--symbol); font-variant-emoji: text;
 }
 .page-header p { margin: 16px 0 6px; color: var(--gold); font: 700 11px/1 var(--ui); letter-spacing: 0; text-transform: uppercase; }
 .page-header h2 { margin: 0; font: 600 54px/1 var(--display); }
@@ -774,7 +863,7 @@ body { margin: 0; background: var(--ivory); color: var(--ink); font-family: var(
 	.glyph-overlay {
 	  position: absolute; left: var(--x); top: var(--y); transform: translate(-50%, -50%);
 	  color: var(--ink); text-align: center; white-space: nowrap; font-variant-emoji: text;
-	  font-family: "Apple Symbols", "Noto Sans Symbols 2", "Segoe UI Symbol", "DejaVu Sans", sans-serif;
+	  font-family: var(--symbol);
 	}
 	.sign-symbol { color: #4c435f; font-size: 20px; line-height: 1; }
 	.planet-symbol {
@@ -814,6 +903,23 @@ body { margin: 0; background: var(--ivory); color: var(--ink); font-family: var(
 	  .planet-symbol { min-width: 30px; padding: 1px 2px; }
 	  .planet-glyph { font-size: 18px; }
 	  .sign-symbol { font-size: 18px; }
+	}
+	@media print {
+	  @page { margin: 18mm 16mm; }
+	  * { color-adjust: exact; print-color-adjust: exact; }
+	  body { background: white; color: #1f1a30; }
+	  .sidebar, .topbar, .cover-note, .pager { display: none !important; }
+	  .app-shell, .main { display: block; width: 100%; min-height: auto; margin: 0; }
+	  .report-page { display: block !important; max-width: none; margin: 0; padding: 0 0 16mm; page-break-before: always; break-before: page; }
+	  .report-page:first-of-type { page-break-before: auto; break-before: auto; }
+	  .page-header { margin-bottom: 12mm; break-after: avoid; page-break-after: avoid; }
+	  .page-header h2 { font-size: 34px; }
+	  .page-glyph { width: 42px; height: 42px; font-size: 22px; }
+	  .prose { border: 0; background: white; padding: 0; font-size: 13pt; line-height: 1.45; }
+	  .prose h1, .prose h2, .prose h3, .prose blockquote, .chart-wheel-frame { break-inside: avoid; page-break-inside: avoid; }
+	  .chart-wheel-frame { max-width: 150mm; margin: 0 auto 10mm; }
+	  .wheel-plot { max-width: 150mm; }
+	  .prose table { break-inside: avoid; page-break-inside: avoid; font-size: 9pt; }
 	}
 	"""
 
