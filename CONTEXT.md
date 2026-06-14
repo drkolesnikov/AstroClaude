@@ -134,8 +134,15 @@ _Avoid_: session, job, analysis
 The self-contained, layered Markdown output of a run — its config/provenance, the
 chart brief, every structure reading, the depth-critic's challenges, and the
 interpreter's portrait — persisted for reading and cross-run comparison.
-Informally, the *dossier*.
+Informally, the *dossier*; its HTML presentation is the *rendered dossier*.
 _Avoid_: report, output
+
+**Rendered dossier**:
+The self-contained, multi-page HTML rendering of the run artifact — the
+individuation portrait, the computed chart wheel, every structure reading, and the
+depth-critic — produced deterministically from the persisted artifacts for reading
+and sharing. A presentation of the dossier, not a second source of truth.
+_Avoid_: webpage, export, HTML dump
 
 **Provenance**:
 The full config a run auto-records — selection, run mode, model, prompt + corpus
