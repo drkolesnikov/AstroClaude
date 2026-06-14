@@ -2,7 +2,7 @@
 name = "natal-chart"
 version = "0.1.0"
 description = "Claude Code-native natal-chart depth-instrument sandbox"
-readme = "CONTEXT.md"
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
   "geonamescache>=3.0.0",
