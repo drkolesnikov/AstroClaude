@@ -19,6 +19,16 @@ class BirthData:
 
 
 @dataclass(frozen=True)
+class ChartSelection:
+    layers: tuple[str, ...] = ("natal",)
+    transit_date: str | None = None
+    progression_date: str | None = None
+    solar_arc_date: str | None = None
+    solar_return_year: int | None = None
+    include_optional_bodies: bool = False
+
+
+@dataclass(frozen=True)
 class ResolvedBirth:
     input_date: str
     input_time: str
@@ -100,9 +110,10 @@ class ChartBrief:
         ]
 
         for layer in self.layers:
+            layer_title = layer.name.replace("_", " ").title()
             lines.extend(
                 [
-                    f"## {layer.name.title()} Layer",
+                    f"## {layer_title} Layer",
                     "",
                     f"- Julian day UT: {layer.julian_day_ut}",
                     "",
