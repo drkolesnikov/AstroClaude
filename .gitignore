@@ -1,0 +1,16 @@
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+.python-version
+
+# Depth-corpus source texts — private + in-copyright, never committed
+corpus/sources/
+# Local retrieval index
+corpus/index/
+
+# Run artifacts may contain native/birth data — keep local
+runs/
+
+# OS
+.DS_Store
