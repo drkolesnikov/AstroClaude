@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
   "geonamescache>=3.0.0",
   "kerykeion>=5.0.0",
+  "numpy>=2.0.0",
   "pypdf>=6.0.0",
   "timezonefinder>=8.0.0",
 ]

@@ -4,6 +4,7 @@ import zipfile
 from pathlib import Path
 
 from natal_chart.corpus import ingest_corpus
+from natal_chart.semantic import SEMANTIC_MODEL_NAME, VECTOR_DIMENSIONS
 
 
 def test_ingest_corpus_indexes_flat_text_sources(tmp_path):
@@ -46,6 +47,32 @@ def test_ingest_corpus_indexes_flat_text_sources(tmp_path):
     assert source_count == 2
     assert chunk_count == result.chunks_indexed
     assert vector_count == result.chunks_indexed
+
+
+def test_ingest_corpus_persists_local_semantic_model(tmp_path):
+    source_dir = tmp_path / "sources"
+    index_dir = tmp_path / "index"
+    source_dir.mkdir()
+    (source_dir / "Depth Author — Shadow Essay.txt").write_text(
+        "Shadow, hidden double, basement twin, disowned anger, and the work of integration.\n" * 40,
+        encoding="utf-8",
+    )
+
+    ingest_corpus(source_dir=source_dir, index_dir=index_dir)
+
+    manifest = json.loads((index_dir / "manifest.json").read_text(encoding="utf-8"))
+    with sqlite3.connect(index_dir / "corpus.sqlite") as connection:
+        row = connection.execute(
+            "select model_name, dimensions, payload_json from embedding_model"
+        ).fetchone()
+
+    assert manifest["embedding_model"] == SEMANTIC_MODEL_NAME
+    assert row[0] == SEMANTIC_MODEL_NAME
+    assert row[1] == VECTOR_DIMENSIONS
+    payload = json.loads(row[2])
+    assert payload["name"] == SEMANTIC_MODEL_NAME
+    assert payload["dimensions"] == VECTOR_DIMENSIONS
+    assert "shadow" in payload["concept_order"]
 
 
 def test_ingest_corpus_excludes_and_records_cookbook_sources(tmp_path):

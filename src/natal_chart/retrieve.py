@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from natal_chart.corpus import VECTOR_DIMENSIONS, embed_text
+from natal_chart.semantic import SemanticEmbeddingModel, model_from_payload
 
 
 @dataclass(frozen=True)
@@ -50,8 +51,12 @@ def retrieve_passages(
     key_images = list(key_images or [])
     scoped_query = _scoped_query(charter=charter, query=query, key_images=key_images)
     database_path = _database_path(index_dir)
-    idf_weights = _load_idf_weights(database_path)
-    query_vector = embed_text(scoped_query, idf_weights=idf_weights)
+    embedding_model = _load_embedding_model(database_path)
+    if embedding_model is None:
+        idf_weights = _load_idf_weights(database_path)
+        query_vector = embed_text(scoped_query, idf_weights=idf_weights)
+    else:
+        query_vector = embed_text(scoped_query, embedding_model=embedding_model)
 
     rows = _load_chunk_rows(database_path)
     scored = sorted(
@@ -253,6 +258,22 @@ def _load_idf_weights(database_path: Path) -> dict[str, float]:
                 return {}
             raise
     return {row["term"]: row["idf"] for row in rows}
+
+
+def _load_embedding_model(database_path: Path) -> SemanticEmbeddingModel | None:
+    with sqlite3.connect(database_path) as connection:
+        connection.row_factory = sqlite3.Row
+        try:
+            row = connection.execute(
+                "select payload_json from embedding_model limit 1"
+            ).fetchone()
+        except sqlite3.OperationalError as error:
+            if "no such table: embedding_model" in str(error):
+                return None
+            raise
+    if row is None:
+        return None
+    return model_from_payload(json.loads(row["payload_json"]))
 
 
 def _dot(vector_a: list[float], vector_b: list[float]) -> float:

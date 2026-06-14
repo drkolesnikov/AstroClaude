@@ -73,6 +73,39 @@ def test_retrieval_weights_charter_specific_terms_above_ubiquitous_depth_terms(t
     assert result.passages[0].filename == "Focused Author — Saturn Boundary.txt"
 
 
+def test_retrieve_passages_matches_shadow_semantics_with_low_literal_overlap(tmp_path):
+    source_dir = tmp_path / "sources"
+    index_dir = tmp_path / "index"
+    source_dir.mkdir()
+    (source_dir / "Depth Author — Banished Twin.txt").write_text(
+        "In the basement lives a banished twin, keeper of forbidden anger and "
+        "unlived vitality behind a sealed door. The shadow appears as this refused double. "
+        * 20,
+        encoding="utf-8",
+    )
+    (source_dir / "Literal Author — Dictionary Shadows.txt").write_text(
+        "A technical dictionary says shadow means darkness cast by an object; "
+        "rejected ballots are discarded and inferior goods are rejected. "
+        * 20,
+        encoding="utf-8",
+    )
+    (source_dir / "Other Author — Desire.txt").write_text(
+        "eros beloved appetite union desire intimacy beauty longing " * 30,
+        encoding="utf-8",
+    )
+    ingest_corpus(source_dir=source_dir, index_dir=index_dir, chunk_words=80, chunk_overlap=0)
+
+    result = retrieve_passages(
+        index_dir=index_dir,
+        charter="shadow",
+        query="disowned rejected inferior complex self",
+        top_k=3,
+    )
+
+    assert result.passages[0].filename == "Depth Author — Banished Twin.txt"
+    assert "banished twin" in result.passages[0].text
+
+
 def test_retrieve_amplification_returns_mythic_material_for_key_images(tmp_path):
     source_dir = tmp_path / "sources"
     index_dir = tmp_path / "index"
