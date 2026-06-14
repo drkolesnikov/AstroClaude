@@ -11,10 +11,9 @@ ADR-0001).
 Anima/Animus, Parental, Wound, Vocation, Eros, Numinous) and the **depth-critic**,
 with **blind** and **contextualized** run modes, run provenance, a Reflection
 scaffold, and side-by-side comparison of two runs. The natal layer is the default;
-other layers are available via `ChartSelection`. No corpus retrieval yet — agents
-reason from the chart brief + their charter, and the depth-critic applies the
-standing anti-Barnum rules below; retrieval-grounded critique (RAG) arrives in a
-later slice.
+other layers are available via `ChartSelection`. Agents retrieve scoped grounding
+from the local **depth corpus** before reading; if the corpus is thin, they flag
+sparse grounding and continue rather than blocking the run.
 
 ## A run, end to end
 
@@ -27,6 +26,8 @@ later slice.
   (Barnum-resistance, ADR-0004).
 - A short `native` slug (e.g. `ada-lovelace`) for the run directory.
 - Optional `seed` for provenance.
+- A local depth-corpus index at `corpus/index/corpus.sqlite`. If it is absent or
+  thin, continue and flag sparse grounding in the agent outputs.
 
 ### 2. Compute the chart + scaffold the run — deterministic, never by hand
 Generate a timestamp (`date -u +%Y-%m-%dT%H:%M:%SZ`) and revision
@@ -64,12 +65,51 @@ run additionally writes `biography.md`; pass `run_mode="contextualized"` and
 Read `runs/<run>/chart-brief.md`. This — and only this — is the chart. Every agent
 reads it; nobody recomputes it.
 
-### 4. Spawn the nine structure agents as independent parallel subagents
+### 4. Retrieve charter-scoped grounding
+Prepare one grounding file per structure agent from the local depth corpus. Choose
+key images from the chart brief (dominant configurations, hard aspects, angular
+planets, repeated signs/houses, and any temporal-layer images in Selection).
+
+    uv run python - <<'PY'
+    from pathlib import Path
+    from natal_chart.retrieve import write_agent_grounding, write_amplification_grounding
+
+    run_dir = Path("runs/<native>-<ts>")
+    structures = ["ego", "persona", "shadow", "anima-animus",
+                  "parental", "wound", "vocation", "eros", "numinous"]
+    key_images = ["<chart image>", "<chart image>"]
+
+    write_agent_grounding(
+        run_dir=run_dir,
+        index_dir=Path("corpus/index"),
+        charter_root=Path("agents"),
+        structures=structures,
+        key_images=key_images,
+        min_results=2,
+    )
+
+    write_amplification_grounding(
+        run_dir=run_dir,
+        index_dir=Path("corpus/index"),
+        key_images=key_images,
+        top_k=5,
+        min_results=1,
+    )
+    PY
+
+Each `runs/<run>/grounding/<slug>.md` is scoped by that agent's charter plus the
+chart brief. If a grounding file says **Sparse grounding**, the agent must say so
+in its reading and distinguish chart-grounded claims from corpus-grounded claims.
+
+### 5. Spawn the nine structure agents as independent parallel subagents
 For each of `ego`, `persona`, `shadow`, `anima-animus`, `parental`, `wound`,
 `vocation`, `eros`, `numinous`, spawn a subagent (in parallel) whose context is
 **only**:
 - the charter at `agents/<slug>.md`, verbatim;
 - the contents of `runs/<run>/chart-brief.md`;
+- the contents of `runs/<run>/grounding/<slug>.md`;
+- optional amplification material from `runs/<run>/grounding/amplification.md`
+  when it speaks to that structure's key images;
 - if blind: "Blind mode: you have no biography; do not invent one";
 - if contextualized: the contents of `runs/<run>/biography.md`, explicitly named
   as biography supplied by the analyst;
@@ -78,19 +118,20 @@ For each of `ego`, `persona`, `shadow`, `anima-animus`, `parental`, `wound`,
 Keep them independent — never let one agent see another's reading. Their tension
 is the instrument (ADR-0003).
 
-### 5. Run the depth-critic
+### 6. Run the depth-critic
 Spawn one depth-critic subagent with `agents/_critic.md`, all nine structure
-readings, and the chart brief. It attacks each reading for vagueness, Barnum,
-cookbook flattening, and non-falsifiability — forcing grounding in *this* chart —
+readings, the chart brief, and the grounding files. It attacks each reading for
+vagueness, Barnum, cookbook flattening, and non-falsifiability — forcing
+grounding in *this* chart and in cited depth-corpus material where available —
 and writes its challenges to `runs/<run>/critic.md`. It writes no interpretation.
 
-### 6. Run the interpreter
+### 7. Run the interpreter
 Spawn one interpreter subagent with `agents/_interpreter.md`, the nine structure
 readings, **the critic's challenges (`critic.md`)**, and the chart brief. Building
 on the threads the critic left standing, it writes the holistic portrait to
 `runs/<run>/interpretation.md`.
 
-### 7. Assemble + validate
+### 8. Assemble + validate
     uv run python - <<'PY'
     from pathlib import Path
     from natal_chart.run import assemble_dossier, validate_run
@@ -104,7 +145,7 @@ If `validate_run` reports problems, fill the gap (provenance, chart brief, a
 missing structure reading, critic section, portrait, or Reflection scaffold) and
 re-assemble. When it is OK, present `runs/<run>/dossier.md`.
 
-### 8. Compare two runs of the same native
+### 9. Compare two runs of the same native
 To read two configurations side by side:
 
     uv run python - <<'PY'
@@ -122,5 +163,8 @@ To read two configurations side by side:
 - **Anti-cookbook / anti-Barnum:** every claim must be specific to *this* chart
   and falsifiable against a living person. "Scorpio rising means intense" is
   failure.
+- **Depth-corpus grounding:** cite retrieved material when it genuinely sharpens
+  a claim; never pad a reading with generic quotations. If retrieval is sparse,
+  say so plainly and continue from the chart brief.
 - **Hermeneutic, not predictive:** the chart is a projective mandala of the
   psyche, read acausally — never a forecast.
