@@ -81,7 +81,7 @@ def init_run(
 def assemble_dossier(run_dir: Path) -> Path:
     """Compose the layered ``dossier.md`` from the parts the agents wrote: the
     interpreter's portrait on top, then the structure readings in provenance
-    order, then the chart brief beneath."""
+    order, then the depth-critic's challenges, then the chart brief beneath."""
     run_dir = Path(run_dir)
     provenance = _read_json(run_dir / "provenance.json")
 
@@ -98,6 +98,11 @@ def assemble_dossier(run_dir: Path) -> Path:
     for slug in provenance["structures"]:
         reading = (run_dir / "structure" / f"{slug}.md").read_text(encoding="utf-8").rstrip()
         parts.extend([f"### {slug}", "", reading, ""])
+
+    critic_path = run_dir / "critic.md"
+    if critic_path.exists():
+        parts.extend(["## Critic Challenges", "", critic_path.read_text(encoding="utf-8").rstrip(), ""])
+
     parts.extend(
         [
             "## Chart Brief",
@@ -114,8 +119,9 @@ def assemble_dossier(run_dir: Path) -> Path:
 
 def validate_run(run_dir: Path) -> ValidationReport:
     """Check a run directory against the artifact contract (Seam 3): provenance,
-    chart brief, the interpreter's portrait, and one reading per active structure
-    agent must all be present and non-empty. Reports every gap, not just the first."""
+    chart brief, the depth-critic's pass, the interpreter's portrait, and one
+    reading per active structure agent must all be present and non-empty. Reports
+    every gap, not just the first."""
     run_dir = Path(run_dir)
     provenance_path = run_dir / "provenance.json"
     if not _non_empty(provenance_path):
@@ -130,6 +136,8 @@ def validate_run(run_dir: Path) -> ValidationReport:
     for slug in provenance["structures"]:
         if not _non_empty(run_dir / "structure" / f"{slug}.md"):
             problems.append(f"missing structure reading: {slug}")
+    if not _non_empty(run_dir / "critic.md"):
+        problems.append("missing critic pass")
 
     return ValidationReport(ok=not problems, problems=problems)
 

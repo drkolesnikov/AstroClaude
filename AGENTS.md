@@ -8,10 +8,10 @@ interpreter, and assemble the dossier. You never compute chart positions yoursel
 ADR-0001).
 
 **Current capability:** the full nine-agent roster (Ego, Persona, Shadow,
-Anima/Animus, Parental, Wound, Vocation, Eros, Numinous), **blind** mode, natal
-layer by default (other layers available via `ChartSelection`). No depth-critic and
-no corpus retrieval yet — agents reason from the chart brief + their charter;
-grounding (RAG) arrives in a later slice.
+Anima/Animus, Parental, Wound, Vocation, Eros, Numinous), the **depth-critic**,
+**blind** mode, natal layer by default (other layers available via
+`ChartSelection`). No corpus retrieval yet — agents reason from the chart brief +
+their charter; grounding (RAG) arrives in a later slice.
 
 ## A run, end to end
 
@@ -61,12 +61,19 @@ For each of `ego`, `persona`, `shadow`, `anima-animus`, `parental`, `wound`,
 Keep them independent — never let one agent see another's reading. Their tension
 is the instrument (ADR-0003).
 
-### 5. Run the interpreter
+### 5. Run the depth-critic
+Spawn one depth-critic subagent with `agents/_critic.md`, all nine structure
+readings, and the chart brief. It attacks each reading for vagueness, Barnum,
+cookbook flattening, and non-falsifiability — forcing grounding in *this* chart —
+and writes its challenges to `runs/<run>/critic.md`. It writes no interpretation.
+
+### 6. Run the interpreter
 Spawn one interpreter subagent with `agents/_interpreter.md`, the nine structure
-readings, and the chart brief. It writes the holistic portrait to
+readings, **the critic's challenges (`critic.md`)**, and the chart brief. Building
+on the threads the critic left standing, it writes the holistic portrait to
 `runs/<run>/interpretation.md`.
 
-### 6. Assemble + validate
+### 7. Assemble + validate
     uv run python - <<'PY'
     from pathlib import Path
     from natal_chart.run import assemble_dossier, validate_run

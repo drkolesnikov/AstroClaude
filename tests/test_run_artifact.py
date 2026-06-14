@@ -99,16 +99,18 @@ def test_assemble_dossier_composes_layered_dossier(tmp_path):
     (run_dir / "interpretation.md").write_text("PORTRAIT: the individuation arc.\n", encoding="utf-8")
     (run_dir / "structure" / "ego.md").write_text("EGO reading.\n", encoding="utf-8")
     (run_dir / "structure" / "shadow.md").write_text("SHADOW reading.\n", encoding="utf-8")
+    (run_dir / "critic.md").write_text("CRITIC: too vague, says the critic.\n", encoding="utf-8")
 
     dossier_path = assemble_dossier(run_dir)
 
     assert dossier_path == run_dir / "dossier.md"
     text = dossier_path.read_text()
 
-    # layered order: portrait first, then structure readings (in provenance order), then chart brief
+    # layered order: portrait, then structure readings, then the critic's challenges, then the brief
     assert text.index("PORTRAIT: the individuation arc.") < text.index("EGO reading.")
     assert text.index("EGO reading.") < text.index("SHADOW reading.")
-    assert text.index("SHADOW reading.") < text.index("# Natal Chart Brief")
+    assert text.index("SHADOW reading.") < text.index("CRITIC: too vague, says the critic.")
+    assert text.index("CRITIC: too vague, says the critic.") < text.index("# Natal Chart Brief")
     # the chart brief is included verbatim at the bottom
     assert brief.to_markdown() in text
 
@@ -120,6 +122,7 @@ def test_validate_run_passes_complete_artifact(tmp_path):
     (run_dir / "interpretation.md").write_text("portrait\n", encoding="utf-8")
     (run_dir / "structure" / "ego.md").write_text("ego reading\n", encoding="utf-8")
     (run_dir / "structure" / "shadow.md").write_text("shadow reading\n", encoding="utf-8")
+    (run_dir / "critic.md").write_text("critic challenges\n", encoding="utf-8")
 
     report = validate_run(run_dir)
 
@@ -140,3 +143,18 @@ def test_validate_run_flags_incomplete_artifact(tmp_path):
     joined = " ".join(report.problems)
     assert "interpretation" in joined  # missing portrait flagged
     assert "shadow" in joined  # missing structure reading flagged by name
+
+
+def test_validate_run_requires_the_critic_pass(tmp_path):
+    spec = RunSpec(native="ada-lovelace", structures=["ego", "shadow"])
+    brief = _sample_chart_brief()
+    run_dir = init_run(spec, brief, runs_root=tmp_path, timestamp="2026-06-14T12:00:00Z", revision="abc123")
+    (run_dir / "interpretation.md").write_text("portrait\n", encoding="utf-8")
+    (run_dir / "structure" / "ego.md").write_text("ego reading\n", encoding="utf-8")
+    (run_dir / "structure" / "shadow.md").write_text("shadow reading\n", encoding="utf-8")
+    # everything present except the depth-critic's pass
+
+    report = validate_run(run_dir)
+
+    assert report.ok is False
+    assert any("critic" in problem for problem in report.problems)
