@@ -7,10 +7,11 @@ interpreter, and assemble the dossier. You never compute chart positions yoursel
 (ADR-0002), and you never collapse an archetype to a single meaning (multivalence,
 ADR-0001).
 
-**Scope of this slice (#4):** natal layer only, **blind** mode, the four spine
-structure agents (Ego, Persona, Shadow, Anima/Animus), no depth-critic, no corpus
-retrieval. Agents reason from the chart brief + their charter. Grounding (RAG) and
-the critic arrive in later slices.
+**Current capability:** the full nine-agent roster (Ego, Persona, Shadow,
+Anima/Animus, Parental, Wound, Vocation, Eros, Numinous), **blind** mode, natal
+layer by default (other layers available via `ChartSelection`). No depth-critic and
+no corpus retrieval yet — agents reason from the chart brief + their charter;
+grounding (RAG) arrives in a later slice.
 
 ## A run, end to end
 
@@ -32,7 +33,8 @@ Generate a timestamp (`date -u +%Y-%m-%dT%H:%M:%SZ`) and revision
     brief = compute_chart(BirthData(date="1815-12-10", time="12:00", place="London, GB"))
     spec = RunSpec(
         native="ada-lovelace",
-        structures=["ego", "persona", "shadow", "anima-animus"],
+        structures=["ego", "persona", "shadow", "anima-animus",
+                    "parental", "wound", "vocation", "eros", "numinous"],
         models={"structure": "sonnet", "interpreter": "opus"},
     )
     run_dir = init_run(spec, brief, runs_root=Path("runs"),
@@ -47,9 +49,10 @@ This writes `runs/<native>-<ts>/` with `provenance.json`, `chart-brief.json`,
 Read `runs/<run>/chart-brief.md`. This — and only this — is the chart. Every agent
 reads it; nobody recomputes it.
 
-### 4. Spawn the four structure agents as independent parallel subagents
-For each of `ego`, `persona`, `shadow`, `anima-animus`, spawn a subagent (in
-parallel) whose context is **only**:
+### 4. Spawn the nine structure agents as independent parallel subagents
+For each of `ego`, `persona`, `shadow`, `anima-animus`, `parental`, `wound`,
+`vocation`, `eros`, `numinous`, spawn a subagent (in parallel) whose context is
+**only**:
 - the charter at `agents/<slug>.md`, verbatim;
 - the contents of `runs/<run>/chart-brief.md`;
 - "Blind mode: you have no biography; do not invent one";
@@ -59,7 +62,7 @@ Keep them independent — never let one agent see another's reading. Their tensi
 is the instrument (ADR-0003).
 
 ### 5. Run the interpreter
-Spawn one interpreter subagent with `agents/_interpreter.md`, the four structure
+Spawn one interpreter subagent with `agents/_interpreter.md`, the nine structure
 readings, and the chart brief. It writes the holistic portrait to
 `runs/<run>/interpretation.md`.
 
