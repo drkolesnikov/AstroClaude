@@ -1,105 +1,64 @@
 # natal-chart
 
-A research sandbox for reading a natal chart the way a Jungian analyst might: as a projective map of the psyche, not a prediction engine. You hand it birth data and it produces a long, structured archetypal reading along with the reasoning behind every claim. The thing being studied is the method. Can a small ensemble of LLM agents, each working a different angle, surface something true about a person that a single cookbook-style pass never would?
+Astrology read through Jung, run by a stack of LLM agents: one for each structure of the psyche, plus a critic that tears up anything that sounds like a horoscope. You give it birth data, it writes a long psychological reading of the chart and shows its work.
 
-It is not a horoscope generator. There is no "you're a Scorpio, so you're intense." If a claim could be true of anyone, it counts as a failure, not a reading.
+It's a research sandbox, not a product. If a sentence in the output could apply to anyone, that counts as a failure.
 
-## What's unusual about it
-
-The decisions below are written up properly in `docs/adr/`. The short version.
-
-### Code computes the chart, the model only interprets
-
-Planetary positions, house cusps, aspects, and configurations come from the Swiss Ephemeris through `kerykeion`. Language models are unreliable at this arithmetic and hopeless at house math, and a wrong chart corrupts every interpretation built on top of it without anyone noticing. So the line is firm: the deterministic tool computes the chart, and the model is handed the result and never recomputes it.
-
-### It reads by structure of the psyche, not by planet
-
-Most astrology software walks a chart placement by placement. This walks it through nine Jungian structures: Ego, Persona, Shadow, Anima/Animus, the parental complexes, the wound, vocation, Eros, and the numinous. Each one is a separate agent that reads the whole chart through a single question. The Shadow agent and the Persona agent look at the same Moon and say different things on purpose, and the disagreement between them is usually where the interesting material is.
-
-### A critic argues with the readings before they're synthesized
-
-Once the agents are done, a depth-critic goes after their output looking for vagueness, Barnum statements, cookbook delineation, and anything that could never be shown wrong. Whatever survives goes to an interpreter, which writes one holistic portrait and keeps the contradictions open rather than ironing them flat.
-
-### The corpus is real books, and it stays on your machine
-
-Each agent is grounded in passages retrieved from a private library of depth-psychology and archetypal-astrology texts (Jung, Greene, Tarnas, Neumann, Hillman, von Franz, and so on). Retrieval runs locally, the index is built from your own copies, and nothing is sent anywhere. The texts are mostly under copyright, so they never enter git either.
-
-### The runtime is Claude Code itself
-
-There is no orchestration binary to run. The method lives as prose in `AGENTS.md` and one charter file per agent, and Claude Code follows it: compute the chart, pull grounding, fan out the agents, run the critic, run the interpreter, write the dossier. Changing how the instrument works means editing text, which is the whole point, because the method is what's under study and it gets revised constantly.
-
-## How a run goes
+## What happens when you run it
 
 ```
-birth data + selected layers + blind/contextualized
-  -> compute_chart       exact chart (tropical, Placidus); the model never touches this
-  -> chart brief         the single source of truth every agent reads
-  -> retrieve grounding  charter-scoped passages from the local corpus
-  -> nine agents         each reads the whole chart through one structure, in parallel
-  -> depth-critic        attacks vague / Barnum / cookbook / unfalsifiable claims
-  -> interpreter         one holistic portrait, tensions left intact
-  -> dossier             portrait, readings, critic notes, chart brief, your reflection
+birth data
+  -> compute_chart    real ephemeris math; the LLM never does this part
+  -> 9 agents         each reads the whole chart through one Jungian structure, in parallel
+  -> a critic         goes after vague, Barnum, and cookbook claims
+  -> an interpreter   stitches the survivors into one portrait
+  -> a dossier        the reading, plus every agent's notes and the chart it worked from
 ```
 
-Each run writes to `runs/<native>-<timestamp>/` with a provenance record (the config, the models, the charter versions it used) so you can tell two runs apart months later. There is no score at the end, on purpose. You read the dossier and write down what landed and what was generic, and every run ships with a reflection scaffold for doing exactly that.
+The nine are Ego, Persona, Shadow, Anima/Animus, the parental complexes, the wound, vocation, Eros, and the numinous. They read the same chart and reach different conclusions, on purpose. The Shadow agent's take on your Moon is a different thing from the Persona agent's.
 
-## Setup
+## The one hard rule
 
-You need [uv](https://github.com/astral-sh/uv) and Python 3.12 or newer.
+The model never computes the chart. Positions, houses, aspects, configurations: all from the Swiss Ephemeris, via `kerykeion`. LLMs fumble the math, and a wrong chart quietly poisons every reading built on it, so the boundary is strict. Code computes, the model interprets, and they don't swap jobs.
+
+Everything else is just text you can edit. The orchestration is `AGENTS.md`; each agent is a charter file in `agents/`. There's nothing to compile: you open the repo in Claude Code, point it at `AGENTS.md`, and it runs. Tuning the method means editing prose.
+
+## Quickstart
 
 ```
 uv sync
 uv run pytest
-```
 
-## Computing a chart
-
-```
+# a chart
 uv run compute_chart --date 1990-01-01 --time 12:00 --place Moscow --country-code RU
+
+# a reading: open in Claude Code, say "do a run following AGENTS.md", read runs/.../dossier.md
 ```
 
-That prints the chart brief: positions, house cusps, aspects, and any configurations it detects. Tropical zodiac and Placidus houses by default. Asteroids, Lilith, and the Part of Fortune are left out unless you pass `--include-optional-bodies`. You can add transits, progressions, solar arc, or a solar return with the matching date flags. Birth data never leaves the machine.
+`compute_chart` prints what it computed: positions, cusps, aspects, configurations. Tropical and Placidus by default. Add `--include-optional-bodies` or the transit/progression/solar flags if you want them.
 
-## The depth corpus
+## The corpus is the good part
 
-The corpus is the set of books that ground the readings. It sits in two gitignored directories:
-
-```
-corpus/sources/   your texts (PDF, EPUB, plain text)
-corpus/index/     the built retrieval index (SQLite)
-```
-
-Put sources in and build the index:
+Without it, the agents reason from training memory. With it, they're grounded in real books: Jung, Greene, Tarnas, Neumann, Hillman, von Franz. Drop PDFs or EPUBs into `corpus/sources/`, build the index, and retrieval feeds each agent passages scoped to its charter.
 
 ```
 uv run ingest_corpus
 ```
 
-Ingestion keeps a record of what it indexed and what it skipped (the rule is depth and amplification sources, never cookbook delineation tables). The retrieval model is fit on your corpus and stored inside the index, so queries run offline with no downloads.
-
-Since the corpus is gitignored, it won't travel into a fresh clone or a worktree. Point runs at a stable copy with an environment variable:
+It runs offline and stays on your machine. The texts are under copyright and the index runs to tens of megabytes, so both are gitignored. That also means the corpus won't follow you into a fresh checkout, so point runs at a fixed copy:
 
 ```
-export NATAL_CORPUS_INDEX=/absolute/path/to/corpus/index
+export NATAL_CORPUS_INDEX=/abs/path/to/corpus/index
 ```
 
-A run that can't find the index announces it instead of quietly grounding on nothing, which is a mistake that already cost me one bad reading.
+No corpus, no problem: the run still happens and says so plainly instead of pretending it had sources. (It used to pretend. That was a bug.)
 
-## Running a reading
+## Where the reasoning lives
 
-Open the repo in Claude Code and ask it to do a run following `AGENTS.md`. It handles the orchestration and leaves the result in `runs/.../dossier.md`. Run it blind (birth data only) when you want the honest test of whether the method finds anything, or contextualized (with a biography) when you want a reading that resonates but are willing to watch yourself for confirmation bias.
+- `CONTEXT.md` is the glossary. Start here.
+- `docs/adr/` has the seven design decisions and the case for each.
+- `agents/` is the charters, one per agent, in plain prose.
 
-## Layout
+## Status, honestly
 
-```
-CONTEXT.md          the glossary; start here for the vocabulary
-AGENTS.md           the orchestration brief (the method, in prose)
-docs/adr/           the seven decisions that shaped the design, and why
-agents/             a charter per structure agent, plus the critic and interpreter
-src/natal_chart/    chart computation, corpus ingestion, retrieval, run lifecycle
-tests/
-```
-
-## Where it stands
-
-A sandbox, not a product. The pipeline is complete and tested, retrieval is local and semantic, and a run goes end to end. What it lacks is mileage. The charters are first drafts and will only sharpen by running real charts and watching which agents earn their keep. If a design choice looks odd, the ADR that made it explains the reasoning.
+The plumbing works and has tests. The readings are only as good as the charters, and those are first drafts. They get sharper by running real charts and cutting the agents that don't earn their place. Run it blind (birth data only) for the honest test of whether it found anything; run it contextualized (you hand it a biography) for a reading that lands harder and is easier to fool yourself with.
