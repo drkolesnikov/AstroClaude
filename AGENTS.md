@@ -26,8 +26,12 @@ sparse grounding and continue rather than blocking the run.
   (Barnum-resistance, ADR-0004).
 - A short `native` slug (e.g. `ada-lovelace`) for the run directory.
 - Optional `seed` for provenance.
-- A local depth-corpus index at `corpus/index/corpus.sqlite`. If it is absent or
-  thin, continue and flag sparse grounding in the agent outputs.
+- A depth-corpus index. Its location resolves from `$NATAL_CORPUS_INDEX` (a
+  **stable path that survives worktree isolation**), falling back to
+  `corpus/index/`. **Pre-flight (before Step 4):** confirm `corpus.sqlite` exists
+  there. If it does not, announce **"UNGROUNDED RUN — corpus index not found"** at
+  the top of the run and require every agent to declare it is reasoning without
+  corpus grounding. Never let a corpus-less run pass silently.
 
 ### 2. Compute the chart + scaffold the run — deterministic, never by hand
 Generate a timestamp (`date -u +%Y-%m-%dT%H:%M:%SZ`) and revision
@@ -72,7 +76,7 @@ planets, repeated signs/houses, and any temporal-layer images in Selection).
 
     uv run python - <<'PY'
     from pathlib import Path
-    from natal_chart.retrieve import write_agent_grounding, write_amplification_grounding
+    from natal_chart.retrieve import resolve_index_dir, write_agent_grounding, write_amplification_grounding
 
     run_dir = Path("runs/<native>-<ts>")
     structures = ["ego", "persona", "shadow", "anima-animus",
@@ -81,7 +85,7 @@ planets, repeated signs/houses, and any temporal-layer images in Selection).
 
     write_agent_grounding(
         run_dir=run_dir,
-        index_dir=Path("corpus/index"),
+        index_dir=resolve_index_dir(),  # $NATAL_CORPUS_INDEX or corpus/index
         charter_root=Path("agents"),
         structures=structures,
         key_images=key_images,
@@ -90,7 +94,7 @@ planets, repeated signs/houses, and any temporal-layer images in Selection).
 
     write_amplification_grounding(
         run_dir=run_dir,
-        index_dir=Path("corpus/index"),
+        index_dir=resolve_index_dir(),  # $NATAL_CORPUS_INDEX or corpus/index
         key_images=key_images,
         top_k=5,
         min_results=1,
