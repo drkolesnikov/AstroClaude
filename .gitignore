@@ -2,6 +2,7 @@
 .venv/
 __pycache__/
 *.pyc
+.pytest_cache/
 .python-version
 
 # Depth-corpus source texts — private + in-copyright, never committed

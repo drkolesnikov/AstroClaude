@@ -1,0 +1,23 @@
+[project]
+name = "natal-chart"
+version = "0.1.0"
+description = "Claude Code-native natal-chart depth-instrument sandbox"
+readme = "CONTEXT.md"
+requires-python = ">=3.12"
+dependencies = [
+  "geonamescache>=3.0.0",
+  "kerykeion>=5.0.0",
+  "timezonefinder>=8.0.0",
+]
+
+[project.scripts]
+compute_chart = "natal_chart.cli:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=8.0.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.8.0,<0.9.0"]
+build-backend = "uv_build"
