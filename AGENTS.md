@@ -7,12 +7,14 @@ interpreter, and assemble the dossier. You never compute chart positions yoursel
 (ADR-0002), and you never collapse an archetype to a single meaning (multivalence,
 ADR-0001).
 
-**Current scope:** the four spine structure agents (Ego, Persona, Shadow,
-Anima/Animus), whole-layer Selection, blind/contextualized run modes, run
-provenance, a critic artifact section, Reflection, and side-by-side comparison.
-The full nine-agent roster and retrieval-grounded critic arrive in later slices;
-until then, agents reason from the chart brief + their charter, and the critic
-section applies the standing anti-Barnum rules below.
+**Current capability:** the full nine-agent roster (Ego, Persona, Shadow,
+Anima/Animus, Parental, Wound, Vocation, Eros, Numinous) and the **depth-critic**,
+with **blind** and **contextualized** run modes, run provenance, a Reflection
+scaffold, and side-by-side comparison of two runs. The natal layer is the default;
+other layers are available via `ChartSelection`. No corpus retrieval yet — agents
+reason from the chart brief + their charter, and the depth-critic applies the
+standing anti-Barnum rules below; retrieval-grounded critique (RAG) arrives in a
+later slice.
 
 ## A run, end to end
 
@@ -40,7 +42,8 @@ Generate a timestamp (`date -u +%Y-%m-%dT%H:%M:%SZ`) and revision
     )
     spec = RunSpec(
         native="ada-lovelace",
-        structures=["ego", "persona", "shadow", "anima-animus"],
+        structures=["ego", "persona", "shadow", "anima-animus",
+                    "parental", "wound", "vocation", "eros", "numinous"],
         selection=["natal"],
         run_mode="blind",
         models={"structure": "sonnet", "interpreter": "opus"},
@@ -61,9 +64,10 @@ run additionally writes `biography.md`; pass `run_mode="contextualized"` and
 Read `runs/<run>/chart-brief.md`. This — and only this — is the chart. Every agent
 reads it; nobody recomputes it.
 
-### 4. Spawn the four structure agents as independent parallel subagents
-For each of `ego`, `persona`, `shadow`, `anima-animus`, spawn a subagent (in
-parallel) whose context is **only**:
+### 4. Spawn the nine structure agents as independent parallel subagents
+For each of `ego`, `persona`, `shadow`, `anima-animus`, `parental`, `wound`,
+`vocation`, `eros`, `numinous`, spawn a subagent (in parallel) whose context is
+**only**:
 - the charter at `agents/<slug>.md`, verbatim;
 - the contents of `runs/<run>/chart-brief.md`;
 - if blind: "Blind mode: you have no biography; do not invent one";
@@ -74,16 +78,17 @@ parallel) whose context is **only**:
 Keep them independent — never let one agent see another's reading. Their tension
 is the instrument (ADR-0003).
 
-### 5. Write the critic section
-Read the structure readings and chart brief, then write
-`runs/<run>/critic.md`. Until the dedicated critic charter lands, use the
-standing rules below as the critic's charter: attack vagueness, Barnum,
-cookbook flattening, and non-falsifiability; demand chart-specific grounding.
+### 5. Run the depth-critic
+Spawn one depth-critic subagent with `agents/_critic.md`, all nine structure
+readings, and the chart brief. It attacks each reading for vagueness, Barnum,
+cookbook flattening, and non-falsifiability — forcing grounding in *this* chart —
+and writes its challenges to `runs/<run>/critic.md`. It writes no interpretation.
 
 ### 6. Run the interpreter
-Spawn one interpreter subagent with `agents/_interpreter.md`, the four structure
-readings, the critic section, and the chart brief. It writes the holistic
-portrait to `runs/<run>/interpretation.md`.
+Spawn one interpreter subagent with `agents/_interpreter.md`, the nine structure
+readings, **the critic's challenges (`critic.md`)**, and the chart brief. Building
+on the threads the critic left standing, it writes the holistic portrait to
+`runs/<run>/interpretation.md`.
 
 ### 7. Assemble + validate
     uv run python - <<'PY'
