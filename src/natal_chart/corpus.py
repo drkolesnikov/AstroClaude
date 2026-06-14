@@ -51,6 +51,12 @@ class ChunkRecord:
 
 
 @dataclass(frozen=True)
+class EmbeddingIndex:
+    chunks: list[ChunkRecord]
+    idf_weights: dict[str, float]
+
+
+@dataclass(frozen=True)
 class CurationDecision:
     filename: str
     reason: str
@@ -73,19 +79,19 @@ def ingest_corpus(
         raise ValueError("chunk_overlap must be non-negative and smaller than chunk_words")
 
     index_dir.mkdir(parents=True, exist_ok=True)
-    sources, chunks, curation_decisions = _build_records(source_dir, chunk_words, chunk_overlap)
+    sources, embedding_index, curation_decisions = _build_records(source_dir, chunk_words, chunk_overlap)
 
     database_path = index_dir / "corpus.sqlite"
-    _write_database(database_path, sources, chunks)
+    _write_database(database_path, sources, embedding_index)
 
     manifest_path = index_dir / "manifest.json"
-    _write_manifest(manifest_path, source_dir, database_path, sources, len(chunks))
+    _write_manifest(manifest_path, source_dir, database_path, sources, len(embedding_index.chunks))
     _write_curation_decisions(index_dir / "curation_decisions.json", curation_decisions)
 
     return CorpusIngestionResult(
         indexed_sources=len(sources),
         excluded_sources=len(curation_decisions),
-        chunks_indexed=len(chunks),
+        chunks_indexed=len(embedding_index.chunks),
         index_path=database_path,
         manifest_path=manifest_path,
     )
@@ -95,9 +101,9 @@ def _build_records(
     source_dir: Path,
     chunk_words: int,
     chunk_overlap: int,
-) -> tuple[list[SourceRecord], list[ChunkRecord], list[CurationDecision]]:
+) -> tuple[list[SourceRecord], EmbeddingIndex, list[CurationDecision]]:
     sources = []
-    chunks = []
+    chunk_inputs = []
     curation_decisions = []
     for path in _source_paths(source_dir):
         raw_bytes = path.read_bytes()
@@ -121,18 +127,30 @@ def _build_records(
         sources.append(source)
         for chunk_index, (chunk_text, start_word, end_word) in enumerate(chunk_texts):
             chunk_id = hashlib.sha256(f"{source_id}:{chunk_index}".encode("utf-8")).hexdigest()
-            chunks.append(
-                ChunkRecord(
-                    chunk_id=chunk_id,
-                    source_id=source_id,
-                    chunk_index=chunk_index,
-                    text=chunk_text,
-                    start_word=start_word,
-                    end_word=end_word,
-                    vector=_embed(chunk_text),
-                )
+            chunk_inputs.append(
+                {
+                    "chunk_id": chunk_id,
+                    "source_id": source_id,
+                    "chunk_index": chunk_index,
+                    "text": chunk_text,
+                    "start_word": start_word,
+                    "end_word": end_word,
+                }
             )
-    return sources, chunks, curation_decisions
+    idf_weights = _idf_weights([item["text"] for item in chunk_inputs])
+    chunks = [
+        ChunkRecord(
+            chunk_id=item["chunk_id"],
+            source_id=item["source_id"],
+            chunk_index=item["chunk_index"],
+            text=item["text"],
+            start_word=item["start_word"],
+            end_word=item["end_word"],
+            vector=_embed(item["text"], idf_weights=idf_weights),
+        )
+        for item in chunk_inputs
+    ]
+    return sources, EmbeddingIndex(chunks=chunks, idf_weights=idf_weights), curation_decisions
 
 
 def _source_paths(source_dir: Path) -> list[Path]:
@@ -211,22 +229,37 @@ def _chunk_text(text: str, chunk_words: int, chunk_overlap: int) -> list[tuple[s
     return chunks
 
 
-def _embed(text: str) -> list[float]:
+def _embed(text: str, *, idf_weights: dict[str, float] | None = None) -> list[float]:
+    idf_weights = idf_weights or {}
     vector = [0.0] * VECTOR_DIMENSIONS
     for token in _tokens(text):
         digest = hashlib.blake2b(token.encode("utf-8"), digest_size=8).digest()
         value = int.from_bytes(digest, "big")
         index = value % VECTOR_DIMENSIONS
         sign = 1.0 if value & 1 else -1.0
-        vector[index] += sign
+        vector[index] += sign * idf_weights.get(token, 1.0)
     norm = math.sqrt(sum(value * value for value in vector))
     if norm == 0:
         return vector
     return [round(value / norm, 8) for value in vector]
 
 
-def embed_text(text: str) -> list[float]:
-    return _embed(text)
+def embed_text(text: str, *, idf_weights: dict[str, float] | None = None) -> list[float]:
+    return _embed(text, idf_weights=idf_weights)
+
+
+def _idf_weights(texts: list[str]) -> dict[str, float]:
+    if not texts:
+        return {}
+    document_count = len(texts)
+    document_frequencies = {}
+    for text in texts:
+        for token in set(_tokens(text)):
+            document_frequencies[token] = document_frequencies.get(token, 0) + 1
+    return {
+        token: round(math.log((document_count + 1) / (frequency + 1)) + 1, 8)
+        for token, frequency in document_frequencies.items()
+    }
 
 
 def _tokens(text: str) -> list[str]:
@@ -246,7 +279,7 @@ def _exclusion_reason(path: Path, text: str) -> str | None:
     return None
 
 
-def _write_database(database_path: Path, sources: list[SourceRecord], chunks: list[ChunkRecord]) -> None:
+def _write_database(database_path: Path, sources: list[SourceRecord], embedding_index: EmbeddingIndex) -> None:
     if database_path.exists():
         database_path.unlink()
     with sqlite3.connect(database_path) as connection:
@@ -276,6 +309,11 @@ def _write_database(database_path: Path, sources: list[SourceRecord], chunks: li
               chunk_id text primary key references chunks(chunk_id),
               dimensions integer not null,
               vector_json text not null
+            );
+
+            create table term_idf (
+              term text primary key,
+              idf real not null
             );
             """
         )
@@ -314,7 +352,7 @@ def _write_database(database_path: Path, sources: list[SourceRecord], chunks: li
                     chunk.start_word,
                     chunk.end_word,
                 )
-                for chunk in chunks
+                for chunk in embedding_index.chunks
             ],
         )
         connection.executemany(
@@ -328,8 +366,14 @@ def _write_database(database_path: Path, sources: list[SourceRecord], chunks: li
                     VECTOR_DIMENSIONS,
                     json.dumps(chunk.vector, separators=(",", ":")),
                 )
-                for chunk in chunks
+                for chunk in embedding_index.chunks
             ],
+        )
+        connection.executemany(
+            """
+            insert into term_idf (term, idf) values (?, ?)
+            """,
+            sorted(embedding_index.idf_weights.items()),
         )
 
 

@@ -49,8 +49,9 @@ def retrieve_passages(
 
     key_images = list(key_images or [])
     scoped_query = _scoped_query(charter=charter, query=query, key_images=key_images)
-    query_vector = embed_text(scoped_query)
     database_path = _database_path(index_dir)
+    idf_weights = _load_idf_weights(database_path)
+    query_vector = embed_text(scoped_query, idf_weights=idf_weights)
 
     rows = _load_chunk_rows(database_path)
     scored = sorted(
@@ -240,6 +241,18 @@ def _load_chunk_rows(database_path: Path) -> list[dict[str, object]]:
             raise ValueError(f"Invalid vector dimensions for chunk {row['chunk_id']}.")
         loaded.append({**dict(row), "vector": vector})
     return loaded
+
+
+def _load_idf_weights(database_path: Path) -> dict[str, float]:
+    with sqlite3.connect(database_path) as connection:
+        connection.row_factory = sqlite3.Row
+        try:
+            rows = connection.execute("select term, idf from term_idf").fetchall()
+        except sqlite3.OperationalError as error:
+            if "no such table: term_idf" in str(error):
+                return {}
+            raise
+    return {row["term"]: row["idf"] for row in rows}
 
 
 def _dot(vector_a: list[float], vector_b: list[float]) -> float:
