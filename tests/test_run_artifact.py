@@ -1,5 +1,6 @@
 import hashlib
 import json
+from pathlib import Path
 
 from natal_chart.models import (
     Aspect,
@@ -10,7 +11,15 @@ from natal_chart.models import (
     LayerBrief,
     ResolvedBirth,
 )
-from natal_chart.run import Provenance, RunSpec, assemble_dossier, compare_runs, init_run, validate_run
+from natal_chart.run import (
+    Provenance,
+    RunSpec,
+    assemble_dossier,
+    compare_runs,
+    init_run,
+    validate_run,
+    write_fabrication_report,
+)
 
 
 def _sample_chart_brief() -> ChartBrief:
@@ -37,6 +46,35 @@ def _sample_chart_brief() -> ChartBrief:
         configurations=[
             Configuration(type="stellium", bodies=["Sun", "Mercury", "Saturn"], details={"sign": "Capricorn"})
         ],
+    )
+    return ChartBrief(zodiac="tropical", house_system="Placidus", resolved_birth=resolved, layers=[natal])
+
+
+def _fabrication_chart_brief() -> ChartBrief:
+    resolved = ResolvedBirth(
+        input_date="1980-01-01",
+        input_time="12:00",
+        place="London",
+        country_code="GB",
+        latitude=51.5074,
+        longitude=-0.1278,
+        timezone="Europe/London",
+        local_datetime="1980-01-01T12:00:00+00:00",
+        utc_datetime="1980-01-01T12:00:00+00:00",
+    )
+    natal = LayerBrief(
+        name="natal",
+        julian_day_ut=2444239.0,
+        bodies=[
+            BodyPosition(name="Sun", longitude=280.0, sign="Capricorn", degree=10.0, house=10, speed=1.0),
+            BodyPosition(name="Moon", longitude=340.0, sign="Pisces", degree=10.0, house=12, speed=12.0),
+            BodyPosition(name="Mercury", longitude=260.0, sign="Sagittarius", degree=20.0, house=9, speed=0.92),
+            BodyPosition(name="Pluto", longitude=197.0, sign="Libra", degree=17.0, house=7, speed=0.02),
+            BodyPosition(name="Imum Coeli", longitude=180.0, sign="Libra", degree=0.0, house=4, speed=None),
+        ],
+        house_cusps=[HouseCusp(house=4, longitude=180.0, sign="Libra", degree=0.0)],
+        aspects=[Aspect(body_a="Sun", body_b="Moon", aspect="sextile", angle=60.0, orb=0.0)],
+        configurations=[],
     )
     return ChartBrief(zodiac="tropical", house_system="Placidus", resolved_birth=resolved, layers=[natal])
 
@@ -197,6 +235,35 @@ def test_assemble_dossier_composes_layered_dossier(tmp_path):
     assert brief.to_markdown() in text
 
 
+def test_write_fabrication_report_checks_each_structure_reading(tmp_path):
+    spec = RunSpec(native="ada-lovelace", structures=["ego", "shadow"])
+    brief = _fabrication_chart_brief()
+    run_dir = init_run(spec, brief, runs_root=tmp_path, timestamp="2026-06-14T12:00:00Z", revision="abc123")
+    (run_dir / "structure" / "ego.md").write_text("Ego rests on Sun sextile Moon.\n", encoding="utf-8")
+    (run_dir / "structure" / "shadow.md").write_text(
+        "Shadow claims Pluto conjunct the IC and stationary Mercury.\n",
+        encoding="utf-8",
+    )
+
+    report = write_fabrication_report(run_dir)
+
+    payload = json.loads((run_dir / "fabrication-report.json").read_text(encoding="utf-8"))
+    markdown = (run_dir / "fabrication-report.md").read_text(encoding="utf-8")
+    assert report.total_unsupported_count == 2
+    assert payload["total_unsupported_count"] == 2
+    assert payload["readings"]["ego"]["unsupported_count"] == 0
+    assert payload["readings"]["shadow"]["unsupported_count"] == 2
+    assert "Claims to drop before synthesis" in markdown
+    assert "Pluto conjunct the IC" in markdown
+    assert "stationary Mercury" in markdown
+
+    (run_dir / "interpretation.md").write_text("portrait drops the false specifics\n", encoding="utf-8")
+    (run_dir / "critic.md").write_text("critic receives the guard report\n", encoding="utf-8")
+    dossier = assemble_dossier(run_dir).read_text(encoding="utf-8")
+    assert "## Fabrication Guard" in dossier
+    assert dossier.index("## Fabrication Guard") < dossier.index("## Critic Challenges")
+
+
 def test_validate_run_passes_complete_artifact(tmp_path):
     spec = RunSpec(native="ada-lovelace", structures=["ego", "shadow"])
     brief = _sample_chart_brief()
@@ -204,12 +271,61 @@ def test_validate_run_passes_complete_artifact(tmp_path):
     (run_dir / "interpretation.md").write_text("portrait\n", encoding="utf-8")
     (run_dir / "structure" / "ego.md").write_text("ego reading\n", encoding="utf-8")
     (run_dir / "structure" / "shadow.md").write_text("shadow reading\n", encoding="utf-8")
+    write_fabrication_report(run_dir)
     (run_dir / "critic.md").write_text("critic challenges\n", encoding="utf-8")
 
     report = validate_run(run_dir)
 
     assert report.ok is True
     assert report.problems == []
+
+
+def test_validate_run_requires_fabrication_report_for_complete_artifact(tmp_path):
+    spec = RunSpec(native="ada-lovelace", structures=["ego"])
+    brief = _sample_chart_brief()
+    run_dir = init_run(spec, brief, runs_root=tmp_path, timestamp="2026-06-14T12:00:00Z", revision="abc123")
+    (run_dir / "interpretation.md").write_text("portrait\n", encoding="utf-8")
+    (run_dir / "structure" / "ego.md").write_text("ego reading\n", encoding="utf-8")
+    (run_dir / "critic.md").write_text("critic challenges\n", encoding="utf-8")
+
+    report = validate_run(run_dir)
+
+    assert report.ok is False
+    assert "missing fabrication report" in report.problems
+
+
+def test_validate_run_reports_fabricated_claim_repeated_in_portrait(tmp_path):
+    spec = RunSpec(native="ada-lovelace", structures=["shadow"])
+    brief = _fabrication_chart_brief()
+    run_dir = init_run(spec, brief, runs_root=tmp_path, timestamp="2026-06-14T12:00:00Z", revision="abc123")
+    (run_dir / "structure" / "shadow.md").write_text(
+        "Shadow claims Pluto conjunct the IC.\n",
+        encoding="utf-8",
+    )
+    write_fabrication_report(run_dir)
+    (run_dir / "critic.md").write_text(
+        "Fabrication guard: drop Pluto conjunct the IC.\n",
+        encoding="utf-8",
+    )
+    (run_dir / "interpretation.md").write_text(
+        "The final portrait repeats Pluto conjunct the IC.\n",
+        encoding="utf-8",
+    )
+
+    unresolved = validate_run(run_dir)
+
+    assert unresolved.ok is False
+    assert "unresolved fabrication in interpretation: shadow: Pluto conjunct the IC" in unresolved.problems
+
+    (run_dir / "interpretation.md").write_text(
+        "The final portrait keeps the root pressure image without the false specific.\n",
+        encoding="utf-8",
+    )
+
+    resolved = validate_run(run_dir)
+
+    assert resolved.ok is True
+    assert resolved.problems == []
 
 
 def test_validate_run_requires_critic_section_for_complete_artifact(tmp_path):
@@ -308,3 +424,11 @@ def test_compare_runs_writes_side_by_side_markdown_for_same_native(tmp_path):
     assert "| Seed | 1 | 2 |" in comparison
     assert "Blind portrait" in comparison
     assert "Contextualized portrait" in comparison
+
+
+def test_agents_brief_documents_fabrication_guard_step():
+    brief = Path("AGENTS.md").read_text(encoding="utf-8")
+
+    assert "fabrication-report.md" in brief
+    assert "claims to drop" in brief
+    assert "validate_run" in brief

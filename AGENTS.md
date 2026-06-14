@@ -122,20 +122,40 @@ For each of `ego`, `persona`, `shadow`, `anima-animus`, `parental`, `wound`,
 Keep them independent — never let one agent see another's reading. Their tension
 is the instrument (ADR-0003).
 
-### 6. Run the depth-critic
+### 6. Run the fabrication guard
+Before the critic or interpreter sees the structure readings, check every
+reading against the chart brief:
+
+    uv run python - <<'PY'
+    from pathlib import Path
+    from natal_chart.run import write_fabrication_report
+    run_dir = Path("runs/<native>-<ts>")
+    report = write_fabrication_report(run_dir)
+    print(report.total_unsupported_count)
+    PY
+
+This writes `runs/<run>/fabrication-report.json` and
+`runs/<run>/fabrication-report.md`. Treat every item under **Claims to drop
+before synthesis** as a fabricated chart claim: pass the report to the
+depth-critic and interpreter, and do not let those claims survive into the final
+portrait.
+
+### 7. Run the depth-critic
 Spawn one depth-critic subagent with `agents/_critic.md`, all nine structure
-readings, the chart brief, and the grounding files. It attacks each reading for
-vagueness, Barnum, cookbook flattening, and non-falsifiability — forcing
-grounding in *this* chart and in cited depth-corpus material where available —
-and writes its challenges to `runs/<run>/critic.md`. It writes no interpretation.
+readings, the chart brief, the grounding files, and `fabrication-report.md`.
+It attacks each reading for vagueness, Barnum, cookbook flattening,
+non-falsifiability, and fabricated chart claims — forcing grounding in *this*
+chart and in cited depth-corpus material where available — and writes its
+challenges to `runs/<run>/critic.md`. It writes no interpretation.
 
-### 7. Run the interpreter
+### 8. Run the interpreter
 Spawn one interpreter subagent with `agents/_interpreter.md`, the nine structure
-readings, **the critic's challenges (`critic.md`)**, and the chart brief. Building
-on the threads the critic left standing, it writes the holistic portrait to
-`runs/<run>/interpretation.md`.
+readings, **the critic's challenges (`critic.md`)**, `fabrication-report.md`, and
+the chart brief. Building on the threads the critic left standing, and dropping
+every fabrication-report item marked as claims to drop, it writes the holistic
+portrait to `runs/<run>/interpretation.md`.
 
-### 8. Assemble + validate
+### 9. Assemble + validate
     uv run python - <<'PY'
     from pathlib import Path
     from natal_chart.run import assemble_dossier, validate_run
@@ -146,10 +166,12 @@ on the threads the critic left standing, it writes the holistic portrait to
     PY
 
 If `validate_run` reports problems, fill the gap (provenance, chart brief, a
-missing structure reading, critic section, portrait, or Reflection scaffold) and
-re-assemble. When it is OK, present `runs/<run>/dossier.md`.
+missing structure reading, fabrication report, critic section, portrait, or
+Reflection scaffold) and re-assemble. If it reports an unresolved fabrication,
+remove that false specific from the portrait and re-validate. When it is OK,
+present `runs/<run>/dossier.md`.
 
-### 9. Compare two runs of the same native
+### 10. Compare two runs of the same native
 To read two configurations side by side:
 
     uv run python - <<'PY'

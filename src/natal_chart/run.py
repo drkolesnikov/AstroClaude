@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass, field
 from hashlib import sha256
 from pathlib import Path
 
+from natal_chart.fabrication import FabricationReport, check_fabrications
 from natal_chart.models import ChartBrief
 
 REFLECTION_SCAFFOLD = """# Reflection
@@ -89,6 +90,21 @@ class ValidationReport:
     problems: list[str]
 
 
+@dataclass(frozen=True)
+class RunFabricationReport:
+    readings: dict[str, FabricationReport]
+
+    @property
+    def total_unsupported_count(self) -> int:
+        return sum(report.unsupported_count for report in self.readings.values())
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "total_unsupported_count": self.total_unsupported_count,
+            "readings": {slug: report.to_dict() for slug, report in self.readings.items()},
+        }
+
+
 def init_run(
     spec: RunSpec,
     brief: ChartBrief,
@@ -141,6 +157,24 @@ def _sha256_file(path: Path) -> str:
     return sha256(path.read_bytes()).hexdigest()
 
 
+def write_fabrication_report(run_dir: Path) -> RunFabricationReport:
+    """Check structure readings against the chart brief and write the guard
+    report that downstream critic/interpreter steps consume."""
+    run_dir = Path(run_dir)
+    provenance = _read_json(run_dir / "provenance.json")
+    chart_brief = (run_dir / "chart-brief.md").read_text(encoding="utf-8")
+    readings = {}
+    for slug in provenance["structures"]:
+        reading_path = run_dir / "structure" / f"{slug}.md"
+        reading = reading_path.read_text(encoding="utf-8") if reading_path.exists() else ""
+        readings[slug] = check_fabrications(reading, chart_brief)
+
+    report = RunFabricationReport(readings=readings)
+    _write_json(run_dir / "fabrication-report.json", report.to_dict())
+    (run_dir / "fabrication-report.md").write_text(_fabrication_markdown(report), encoding="utf-8")
+    return report
+
+
 def assemble_dossier(run_dir: Path) -> Path:
     """Compose the layered ``dossier.md`` from the parts the agents wrote: the
     interpreter's portrait on top, then the structure readings in provenance
@@ -161,6 +195,10 @@ def assemble_dossier(run_dir: Path) -> Path:
     for slug in provenance["structures"]:
         reading = (run_dir / "structure" / f"{slug}.md").read_text(encoding="utf-8").rstrip()
         parts.extend([f"### {slug}", "", reading, ""])
+
+    fabrication_path = run_dir / "fabrication-report.md"
+    if fabrication_path.exists():
+        parts.extend(["## Fabrication Guard", "", fabrication_path.read_text(encoding="utf-8").rstrip(), ""])
 
     critic_path = run_dir / "critic.md"
     if critic_path.exists():
@@ -207,6 +245,15 @@ def validate_run(run_dir: Path) -> ValidationReport:
     for slug in provenance["structures"]:
         if not _non_empty(run_dir / "structure" / f"{slug}.md"):
             problems.append(f"missing structure reading: {slug}")
+    fabrication_payload = _load_fabrication_payload(run_dir)
+    if fabrication_payload is None:
+        problems.append("missing fabrication report")
+    else:
+        reported_structures = set(fabrication_payload.get("readings", {}))
+        for slug in provenance["structures"]:
+            if slug not in reported_structures:
+                problems.append(f"fabrication report missing structure: {slug}")
+        problems.extend(_unresolved_fabrication_problems(run_dir, fabrication_payload))
     if not _non_empty(run_dir / "critic.md"):
         problems.append("missing critic pass")
 
@@ -268,6 +315,72 @@ def _write_json(path: Path, payload: object) -> None:
 
 def _read_json(path: Path) -> dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _fabrication_markdown(report: RunFabricationReport) -> str:
+    lines = [
+        "# Fabrication Report",
+        "",
+        f"- Unsupported claim count: {report.total_unsupported_count}",
+        "",
+        "## Claims to drop before synthesis",
+        "",
+    ]
+    if report.total_unsupported_count == 0:
+        lines.append("- None detected")
+        return "\n".join(lines).rstrip() + "\n"
+
+    for slug, reading_report in report.readings.items():
+        if reading_report.unsupported_count == 0:
+            continue
+        lines.extend([f"### {slug}", ""])
+        for claim in reading_report.unsupported_claims:
+            if claim.claim_type == "aspect":
+                label = f"{claim.body_a} {claim.aspect} {claim.body_b}"
+            else:
+                label = f"stationary {claim.body_a}"
+            lines.append(f"- Drop `{claim.text}` ({label}): {claim.reason}.")
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _load_fabrication_payload(run_dir: Path) -> dict[str, object] | None:
+    report_path = run_dir / "fabrication-report.json"
+    markdown_path = run_dir / "fabrication-report.md"
+    if not _non_empty(report_path) or not _non_empty(markdown_path):
+        return None
+    return _read_json(report_path)
+
+
+def _unresolved_fabrication_problems(run_dir: Path, payload: dict[str, object]) -> list[str]:
+    interpretation_path = run_dir / "interpretation.md"
+    if not _non_empty(interpretation_path):
+        return []
+    interpretation = _normalize_text(interpretation_path.read_text(encoding="utf-8"))
+    readings = payload.get("readings", {})
+    if not isinstance(readings, dict):
+        return ["invalid fabrication report"]
+
+    problems = []
+    for slug, report in readings.items():
+        if not isinstance(report, dict):
+            problems.append(f"invalid fabrication report for structure: {slug}")
+            continue
+        claims = report.get("unsupported_claims", [])
+        if not isinstance(claims, list):
+            problems.append(f"invalid fabrication claims for structure: {slug}")
+            continue
+        for claim in claims:
+            if not isinstance(claim, dict):
+                continue
+            text = str(claim.get("text", "")).strip()
+            if text and _normalize_text(text) in interpretation:
+                problems.append(f"unresolved fabrication in interpretation: {slug}: {text}")
+    return problems
+
+
+def _normalize_text(text: str) -> str:
+    return " ".join(text.casefold().split())
 
 
 def _read_required(path: Path) -> str:
