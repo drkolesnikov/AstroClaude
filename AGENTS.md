@@ -110,6 +110,8 @@ For each of `ego`, `persona`, `shadow`, `anima-animus`, `parental`, `wound`,
 `vocation`, `eros`, `numinous`, spawn a subagent (in parallel) whose context is
 **only**:
 - the charter at `agents/<slug>.md`, verbatim;
+- the house rules at `agents/_house-rules.md`, verbatim — the anti-fabrication
+  contract that binds every structure agent;
 - the contents of `runs/<run>/chart-brief.md`;
 - the contents of `runs/<run>/grounding/<slug>.md`;
 - optional amplification material from `runs/<run>/grounding/amplification.md`
