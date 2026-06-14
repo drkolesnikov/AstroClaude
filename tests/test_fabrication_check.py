@@ -72,3 +72,88 @@ def test_fabrication_report_serializes_count_for_run_metrics():
 
     assert report.to_dict()["unsupported_count"] == 1
     assert report.to_dict()["unsupported_claims"][0]["body_b"] == "Imum Coeli"
+
+
+def _hardening_brief() -> ChartBrief:
+    """Mirrors the john-d facts the checker missed: Mercury ordinary retrograde,
+    Mars stationary, a real Venus-MC conjunction, no Pluto-IC, no Jupiter-Uranus."""
+    resolved = ResolvedBirth(
+        input_date="1980-01-01", input_time="12:00", place="London", country_code="GB",
+        latitude=51.5, longitude=-0.1, timezone="Europe/London",
+        local_datetime="1980-01-01T12:00:00+00:00", utc_datetime="1980-01-01T12:00:00+00:00",
+    )
+    natal = LayerBrief(
+        name="natal", julian_day_ut=2444239.0,
+        bodies=[
+            BodyPosition(name="Mercury", longitude=33.9, sign="Taurus", degree=3.9, house=9, speed=-0.6669),
+            BodyPosition(name="Venus", longitude=43.6, sign="Taurus", degree=13.6, house=9, speed=1.23),
+            BodyPosition(name="Mars", longitude=166.7, sign="Virgo", degree=16.7, house=1, speed=-0.0046),
+            BodyPosition(name="Jupiter", longitude=319.0, sign="Aquarius", degree=19.0, house=6, speed=0.12),
+            BodyPosition(name="Uranus", longitude=308.5, sign="Aquarius", degree=8.5, house=6, speed=0.01),
+            BodyPosition(name="Pluto", longitude=244.9, sign="Sagittarius", degree=4.9, house=4, speed=-0.02),
+            BodyPosition(name="Midheaven", longitude=47.5, sign="Taurus", degree=17.5, house=10, speed=None),
+            BodyPosition(name="Imum Coeli", longitude=227.5, sign="Scorpio", degree=17.5, house=4, speed=None),
+        ],
+        house_cusps=[HouseCusp(house=4, longitude=227.5, sign="Scorpio", degree=17.5)],
+        aspects=[Aspect(body_a="Venus", body_b="Midheaven", aspect="conjunction", angle=0.0, orb=3.9)],
+        configurations=[],
+    )
+    return ChartBrief(zodiac="tropical", house_system="Placidus", resolved_birth=resolved, layers=[natal])
+
+
+def test_flags_separated_subject_planet_conjunct_angle():
+    # the literal john-d shadow phrasing: subject is far from the aspect word
+    reading = "Pluto at 4.96° Sagittarius sits in the fourth house, conjunct the IC at Scorpio 17°."
+    report = check_fabrications(reading, _hardening_brief().to_markdown())
+    assert ("Pluto", "conjunction", "Imum Coeli") in {
+        (c.body_a, c.aspect, c.body_b) for c in report.unsupported_claims
+    }
+
+
+def test_flags_station_in_noun_and_verb_forms_for_nonstationary_body():
+    reading = "Mercury is retrograde, stationed and turning, so close to exact station."
+    report = check_fabrications(reading, _hardening_brief().to_markdown())
+    assert any(c.claim_type == "station" and c.body_a == "Mercury" for c in report.unsupported_claims)
+
+
+def test_does_not_flag_station_for_genuinely_stationary_mars_in_noun_form():
+    reading = "Stationary retrograde Mars in Virgo. The Mars station holds the charge."
+    report = check_fabrications(reading, _hardening_brief().to_markdown())
+    assert all(not (c.claim_type == "station" and c.body_a == "Mars") for c in report.unsupported_claims)
+
+
+def test_does_not_flag_real_conjunction_named_in_the_brief():
+    reading = "Venus conjunct the Midheaven anchors value to vocation."
+    report = check_fabrications(reading, _hardening_brief().to_markdown())
+    assert all(not (c.body_a == "Venus" and c.body_b == "Midheaven") for c in report.unsupported_claims)
+
+
+def test_does_not_misbind_an_aspect_object_as_the_next_aspects_subject():
+    # the real john-d shadow phrasing — Venus is the OBJECT of the first trine,
+    # not the subject of the second; it must not become a Venus-MC trine claim.
+    reading = "Mars stations; the trine to Venus and the trine to the Midheaven integrate it."
+    report = check_fabrications(reading, _hardening_brief().to_markdown())
+    assert all(
+        not (c.body_a == "Venus" and c.aspect == "trine" and c.body_b == "Midheaven")
+        for c in report.unsupported_claims
+    )
+
+
+def test_does_not_read_the_word_t_square_as_a_square_aspect():
+    reading = "Pluto sits at the apex of the t-square with the Moon."
+    report = check_fabrications(reading, _hardening_brief().to_markdown())
+    assert all(c.aspect != "square" for c in report.unsupported_claims)
+
+
+def test_consumes_a_coordinated_object_list_so_it_does_not_leak_a_subject():
+    # "sextile Uranus and Neptune, trine the South Node" — Neptune is a coordinated
+    # object of the sextile, not the subject of the trine.
+    reading = "Pluto is sextile Uranus and Neptune, trine the South Node."
+    report = check_fabrications(reading, _hardening_brief().to_markdown())
+    assert all(not (c.body_a == "Neptune" and c.body_b == "South Node") for c in report.unsupported_claims)
+
+
+def test_does_not_bind_a_station_to_an_angle():
+    reading = "The Ascendant holds the chart together while Mars sits at a standstill."
+    report = check_fabrications(reading, _hardening_brief().to_markdown())
+    assert all(c.body_a != "Ascendant" for c in report.unsupported_claims)
