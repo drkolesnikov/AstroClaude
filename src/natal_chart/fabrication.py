@@ -58,6 +58,19 @@ BODY_PATTERN = r"""
 """
 ASPECT_PATTERN = r"conjunct(?:ion)?|opposite|opposition|squares?|trines?|sextiles?"
 
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?;])\s+")
+_BODY_FINDER = re.compile(rf"\b(?:{BODY_PATTERN})\b", re.IGNORECASE | re.VERBOSE)
+_ASPECT_FINDER = re.compile(rf"(?<!t-)(?<!grand )\b(?:{ASPECT_PATTERN})\b", re.IGNORECASE)
+_STATION_FINDER = re.compile(r"\b(?:mid-)?station(?:ary|ed|ing|s)?\b|\bstandstill\b", re.IGNORECASE)
+_OBJECT_GAP = re.compile(r"^\s*(?:the|its|a|an|to|with)?\s*$", re.IGNORECASE)
+_COORD_GAP = re.compile(r"^\s*,?\s*(?:and|or)?\s*,?\s*$", re.IGNORECASE)
+_ANGLES = frozenset({"Ascendant", "Descendant", "Midheaven", "Imum Coeli"})
+_PAIR_THEN_ASPECT = re.compile(
+    rf"\b(?P<body_a>{BODY_PATTERN})\b\s*[-–—/]\s*"
+    rf"\b(?P<body_b>{BODY_PATTERN})\b\s+(?P<aspect>{ASPECT_PATTERN})",
+    re.IGNORECASE | re.VERBOSE,
+)
+
 
 @dataclass(frozen=True)
 class UnsupportedClaim:
@@ -187,53 +200,101 @@ def _parse_chart_brief(markdown: str) -> ChartGroundTruth:
     return ChartGroundTruth(aspects=frozenset(aspects), speeds_by_body=speeds_by_body)
 
 
+def _sentences(text: str) -> list[str]:
+    return _SENTENCE_SPLIT.split(text)
+
+
+def _body_spans(sentence: str) -> list[tuple[int, int, str]]:
+    spans: list[tuple[int, int, str]] = []
+    for match in _BODY_FINDER.finditer(sentence):
+        name = _canonical_body(match.group(0))
+        if name:
+            spans.append((match.start(), match.end(), name))
+    return spans
+
+
+def _immediate_object(sentence: str, aspect_end: int, bodies: list[tuple[int, int, str]]) -> int | None:
+    """The object is the body right after the aspect word, separated only by a
+    connector ("the"/"to"/...). If the nearest following body is further than that
+    (a clause, "(orb 7°)", an unparsable phrase like "the lunar nodes"), there is
+    no object — better to miss than to grab a far body."""
+    for index, (start, _end, _name) in enumerate(bodies):
+        if start >= aspect_end:
+            return index if _OBJECT_GAP.match(sentence[aspect_end:start]) else None
+    return None
+
+
+def _coordinated_object_indices(sentence: str, first: int, bodies: list[tuple[int, int, str]]) -> set[int]:
+    """Consume a coordinated object list whole — "sextile Uranus and Neptune"
+    makes both objects, so neither leaks as a later aspect's subject."""
+    indices = {first}
+    cursor = first
+    while cursor + 1 < len(bodies) and _COORD_GAP.match(sentence[bodies[cursor][1] : bodies[cursor + 1][0]]):
+        cursor += 1
+        indices.add(cursor)
+    return indices
+
+
 def _aspect_claims(reading: str) -> list[ParsedAspectClaim]:
-    claims = []
-    direct = re.compile(
-        rf"\b(?P<body_a>{BODY_PATTERN})\b\s+(?:is\s+|are\s+|was\s+|were\s+)?"
-        rf"(?P<aspect>{ASPECT_PATTERN})\s+(?:the\s+)?\b(?P<body_b>{BODY_PATTERN})\b",
-        re.IGNORECASE | re.VERBOSE,
-    )
-    pair_then_aspect = re.compile(
-        rf"\b(?P<body_a>{BODY_PATTERN})\b\s*[-–—/]\s*"
-        rf"\b(?P<body_b>{BODY_PATTERN})\b\s+(?P<aspect>{ASPECT_PATTERN})",
-        re.IGNORECASE | re.VERBOSE,
-    )
-    for pattern in (direct, pair_then_aspect):
-        for match in pattern.finditer(reading):
+    """Sentence-aware. An aspect's object is the body *immediately* after it; a
+    coordinated list is consumed whole; the subject is the nearest preceding body
+    not used as an object. Catches "Pluto ... conjunct the IC" while refusing to
+    grab a far-off body, a coordinated object, or the "square" inside "t-square"."""
+    claims: list[ParsedAspectClaim] = []
+    for sentence in _sentences(reading):
+        bodies = _body_spans(sentence)
+        if bodies:
+            hits = [
+                (m.start(), m.end(), aspect)
+                for m in _ASPECT_FINDER.finditer(sentence)
+                if (aspect := _canonical_aspect(m.group(0)))
+            ]
+            objects = [_immediate_object(sentence, a_end, bodies) for (_s, a_end, _a) in hits]
+            consumed: set[int] = set()
+            for obj_idx in objects:
+                if obj_idx is not None:
+                    consumed |= _coordinated_object_indices(sentence, obj_idx, bodies)
+            for (a_start, _a_end, aspect), obj_idx in zip(hits, objects):
+                if obj_idx is None:
+                    continue
+                subj_idx = next(
+                    (i for i in range(len(bodies) - 1, -1, -1) if bodies[i][1] <= a_start and i not in consumed),
+                    None,
+                )
+                if subj_idx is None or bodies[subj_idx][2] == bodies[obj_idx][2]:
+                    continue
+                text = _clean_claim_text(sentence[bodies[subj_idx][0] : bodies[obj_idx][1]])
+                claims.append(
+                    ParsedAspectClaim(
+                        text=text, body_a=bodies[subj_idx][2], aspect=aspect, body_b=bodies[obj_idx][2]
+                    )
+                )
+        for match in _PAIR_THEN_ASPECT.finditer(sentence):
             body_a = _canonical_body(match.group("body_a"))
             body_b = _canonical_body(match.group("body_b"))
             aspect = _canonical_aspect(match.group("aspect"))
-            if body_a and body_b and aspect:
+            if body_a and body_b and aspect and body_a != body_b:
                 claims.append(
                     ParsedAspectClaim(
-                        text=_clean_claim_text(match.group(0)),
-                        body_a=body_a,
-                        aspect=aspect,
-                        body_b=body_b,
+                        text=_clean_claim_text(match.group(0)), body_a=body_a, aspect=aspect, body_b=body_b
                     )
                 )
     return claims
 
 
 def _station_claims(reading: str) -> list[ParsedStationClaim]:
-    claims = []
-    patterns = [
-        re.compile(rf"\bstationary\s+(?P<body>{BODY_PATTERN})\b", re.IGNORECASE | re.VERBOSE),
-        re.compile(
-            rf"\b(?P<body>{BODY_PATTERN})\b\s+(?:is\s+|was\s+|appears\s+)?stationary\b",
-            re.IGNORECASE | re.VERBOSE,
-        ),
-        re.compile(
-            rf"\b(?P<body>{BODY_PATTERN})\b\s+(?:is\s+|was\s+)?(?:at\s+)?(?:a\s+)?standstill\b",
-            re.IGNORECASE | re.VERBOSE,
-        ),
-    ]
-    for pattern in patterns:
-        for match in pattern.finditer(reading):
-            body = _canonical_body(match.group("body"))
-            if body:
-                claims.append(ParsedStationClaim(text=_clean_claim_text(match.group(0)), body=body))
+    """Catch "stationary"/"standstill" and the noun/verb forms ("station",
+    "stationed", "mid-station") that the agents actually use, binding each to the
+    nearest body in the same sentence so the speed check can confirm or reject it."""
+    claims: list[ParsedStationClaim] = []
+    for sentence in _sentences(reading):
+        candidates = [span for span in _body_spans(sentence) if span[2] not in _ANGLES]
+        if not candidates:
+            continue
+        for match in _STATION_FINDER.finditer(sentence):
+            trigger = (match.start() + match.end()) // 2
+            nearest = min(candidates, key=lambda span: min(abs(span[0] - trigger), abs(span[1] - trigger)))
+            claims.append(ParsedStationClaim(text=_clean_claim_text(match.group(0)), body=nearest[2]))
     return claims
 
 
