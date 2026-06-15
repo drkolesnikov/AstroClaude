@@ -162,7 +162,7 @@ def write_fabrication_report(run_dir: Path) -> RunFabricationReport:
     report that downstream critic/interpreter steps consume."""
     run_dir = Path(run_dir)
     provenance = _read_json(run_dir / "provenance.json")
-    chart_brief = (run_dir / "chart-brief.md").read_text(encoding="utf-8")
+    chart_brief = ChartBrief.from_dict(_read_json(run_dir / "chart-brief.json"))
     readings = {}
     for slug in provenance["structures"]:
         reading_path = run_dir / "structure" / f"{slug}.md"

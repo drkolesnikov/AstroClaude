@@ -84,12 +84,6 @@ class FabricationReport:
 
 
 @dataclass(frozen=True)
-class ChartGroundTruth:
-    aspects: frozenset[tuple[frozenset[str], AspectName]]
-    speeds_by_body: dict[str, list[float]]
-
-
-@dataclass(frozen=True)
 class ParsedAspectClaim:
     text: str
     body_a: str
@@ -105,12 +99,14 @@ class ParsedStationClaim:
 
 def check_fabrications(
     reading: str,
-    chart_brief: str | ChartBrief,
+    chart_brief: ChartBrief,
     *,
     station_speed_threshold: float = STATION_SPEED_THRESHOLD,
 ) -> FabricationReport:
-    brief_markdown = chart_brief.to_markdown() if isinstance(chart_brief, ChartBrief) else chart_brief
-    ground_truth = _parse_chart_brief(brief_markdown)
+    if not isinstance(chart_brief, ChartBrief):
+        raise TypeError("check_fabrications requires chart_brief to be a ChartBrief")
+
+    ground_truth = chart_brief.facts
     unsupported: list[UnsupportedClaim] = []
 
     seen_aspects = set()
@@ -149,41 +145,6 @@ def check_fabrications(
             )
 
     return FabricationReport(unsupported_claims=tuple(unsupported))
-
-
-def _parse_chart_brief(markdown: str) -> ChartGroundTruth:
-    aspects: set[tuple[frozenset[str], AspectName]] = set()
-    speeds_by_body: dict[str, list[float]] = {}
-    section: str | None = None
-    for line in markdown.splitlines():
-        stripped = line.strip()
-        if stripped == "### Bodies":
-            section = "bodies"
-            continue
-        if stripped == "### Aspects":
-            section = "aspects"
-            continue
-        if stripped.startswith("### "):
-            section = None
-            continue
-        if not (stripped.startswith("|") and stripped.endswith("|")):
-            continue
-        cells = [cell.strip() for cell in stripped.strip("|").split("|")]
-        if _is_table_header_or_rule(cells):
-            continue
-        if section == "bodies" and len(cells) >= 6:
-            body = _canonical_body(cells[0])
-            speed = _parse_float(cells[5])
-            if body and speed is not None:
-                speeds_by_body.setdefault(body, []).append(speed)
-        if section == "aspects" and len(cells) >= 3:
-            body_a = _canonical_body(cells[0])
-            aspect = _canonical_aspect(cells[1])
-            body_b = _canonical_body(cells[2])
-            if body_a and aspect and body_b:
-                aspects.add((frozenset((body_a, body_b)), aspect))
-
-    return ChartGroundTruth(aspects=frozenset(aspects), speeds_by_body=speeds_by_body)
 
 
 def _sentences(text: str) -> list[str]:
@@ -292,19 +253,6 @@ def _canonical_body(value: str) -> str | None:
 def _canonical_aspect(value: str) -> AspectName | None:
     normalized = value.strip().casefold()
     return ASPECT_ALIASES.get(normalized)
-
-
-def _parse_float(value: str) -> float | None:
-    if not value:
-        return None
-    try:
-        return float(value)
-    except ValueError:
-        return None
-
-
-def _is_table_header_or_rule(cells: list[str]) -> bool:
-    return not cells or all(set(cell) <= {"-", ":"} for cell in cells) or cells[0] in {"Body", "Body A"}
 
 
 def _clean_claim_text(text: str) -> str:

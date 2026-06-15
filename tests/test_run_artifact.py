@@ -2,6 +2,8 @@ import hashlib
 import json
 from pathlib import Path
 
+import pytest
+
 from natal_chart.models import (
     Aspect,
     BodyPosition,
@@ -262,6 +264,63 @@ def test_write_fabrication_report_checks_each_structure_reading(tmp_path):
     dossier = assemble_dossier(run_dir).read_text(encoding="utf-8")
     assert "## Fabrication Guard" in dossier
     assert dossier.index("## Fabrication Guard") < dossier.index("## Critic Challenges")
+
+
+def test_write_fabrication_report_reads_chart_brief_json_not_markdown(tmp_path):
+    spec = RunSpec(native="ada-lovelace", structures=["shadow"])
+    brief = _fabrication_chart_brief()
+    run_dir = init_run(spec, brief, runs_root=tmp_path, timestamp="2026-06-14T12:00:00Z", revision="abc123")
+    (run_dir / "structure" / "shadow.md").write_text(
+        "Shadow claims Pluto conjunct the IC and stationary Mercury.\n",
+        encoding="utf-8",
+    )
+    (run_dir / "chart-brief.md").write_text(
+        """# Misleading Rendered Brief
+
+## Natal Layer
+
+### Bodies
+
+| Body | Sign | Degree | House | Longitude | Speed |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Mercury | Sagittarius | 20.0000 | 9 | 260.0000 | 0.0000 |
+| Pluto | Libra | 17.0000 | 7 | 197.0000 | 0.0200 |
+| Imum Coeli | Libra | 0.0000 | 4 | 180.0000 | |
+
+### Aspects
+
+| Body A | Aspect | Body B | Orb |
+| --- | --- | --- | ---: |
+| Pluto | conjunction | Imum Coeli | 0.0000 |
+""",
+        encoding="utf-8",
+    )
+
+    report = write_fabrication_report(run_dir)
+
+    assert report.total_unsupported_count == 2
+
+
+def test_write_fabrication_report_requires_chart_brief_json(tmp_path):
+    spec = RunSpec(native="ada-lovelace", structures=["ego"])
+    brief = _sample_chart_brief()
+    run_dir = init_run(spec, brief, runs_root=tmp_path, timestamp="2026-06-14T12:00:00Z", revision="abc123")
+    (run_dir / "structure" / "ego.md").write_text("Ego rests on Sun sextile Moon.\n", encoding="utf-8")
+    (run_dir / "chart-brief.json").unlink()
+
+    with pytest.raises(FileNotFoundError):
+        write_fabrication_report(run_dir)
+
+
+def test_write_fabrication_report_rejects_malformed_chart_brief_json(tmp_path):
+    spec = RunSpec(native="ada-lovelace", structures=["ego"])
+    brief = _sample_chart_brief()
+    run_dir = init_run(spec, brief, runs_root=tmp_path, timestamp="2026-06-14T12:00:00Z", revision="abc123")
+    (run_dir / "structure" / "ego.md").write_text("Ego rests on Sun sextile Moon.\n", encoding="utf-8")
+    (run_dir / "chart-brief.json").write_text(json.dumps({"zodiac": "tropical"}) + "\n", encoding="utf-8")
+
+    with pytest.raises((KeyError, TypeError)):
+        write_fabrication_report(run_dir)
 
 
 def test_validate_run_passes_complete_artifact(tmp_path):
