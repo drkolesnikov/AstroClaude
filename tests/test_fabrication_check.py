@@ -1,3 +1,6 @@
+import pytest
+
+import natal_chart.fabrication as fabrication
 from natal_chart.fabrication import check_fabrications
 from natal_chart.models import (
     Aspect,
@@ -54,7 +57,7 @@ def test_fabrication_checker_flags_john_d_style_unsupported_claims():
     and Mars at a standstill can be used because its speed is near zero.
     """
 
-    report = check_fabrications(reading, _john_d_style_brief().to_markdown())
+    report = check_fabrications(reading, _john_d_style_brief())
 
     assert report.unsupported_count == 3
     assert {(claim.claim_type, claim.body_a, claim.aspect, claim.body_b) for claim in report.unsupported_claims} == {
@@ -68,7 +71,7 @@ def test_fabrication_checker_flags_john_d_style_unsupported_claims():
 
 
 def test_fabrication_report_serializes_count_for_run_metrics():
-    report = check_fabrications("Pluto conjunct the IC.", _john_d_style_brief().to_markdown())
+    report = check_fabrications("Pluto conjunct the IC.", _john_d_style_brief())
 
     assert report.to_dict()["unsupported_count"] == 1
     assert report.to_dict()["unsupported_claims"][0]["body_b"] == "Imum Coeli"
@@ -104,7 +107,7 @@ def _hardening_brief() -> ChartBrief:
 def test_flags_separated_subject_planet_conjunct_angle():
     # the literal john-d shadow phrasing: subject is far from the aspect word
     reading = "Pluto at 4.96° Sagittarius sits in the fourth house, conjunct the IC at Scorpio 17°."
-    report = check_fabrications(reading, _hardening_brief().to_markdown())
+    report = check_fabrications(reading, _hardening_brief())
     assert ("Pluto", "conjunction", "Imum Coeli") in {
         (c.body_a, c.aspect, c.body_b) for c in report.unsupported_claims
     }
@@ -112,19 +115,19 @@ def test_flags_separated_subject_planet_conjunct_angle():
 
 def test_flags_station_in_noun_and_verb_forms_for_nonstationary_body():
     reading = "Mercury is retrograde, stationed and turning, so close to exact station."
-    report = check_fabrications(reading, _hardening_brief().to_markdown())
+    report = check_fabrications(reading, _hardening_brief())
     assert any(c.claim_type == "station" and c.body_a == "Mercury" for c in report.unsupported_claims)
 
 
 def test_does_not_flag_station_for_genuinely_stationary_mars_in_noun_form():
     reading = "Stationary retrograde Mars in Virgo. The Mars station holds the charge."
-    report = check_fabrications(reading, _hardening_brief().to_markdown())
+    report = check_fabrications(reading, _hardening_brief())
     assert all(not (c.claim_type == "station" and c.body_a == "Mars") for c in report.unsupported_claims)
 
 
 def test_does_not_flag_real_conjunction_named_in_the_brief():
     reading = "Venus conjunct the Midheaven anchors value to vocation."
-    report = check_fabrications(reading, _hardening_brief().to_markdown())
+    report = check_fabrications(reading, _hardening_brief())
     assert all(not (c.body_a == "Venus" and c.body_b == "Midheaven") for c in report.unsupported_claims)
 
 
@@ -132,7 +135,7 @@ def test_does_not_misbind_an_aspect_object_as_the_next_aspects_subject():
     # the real john-d shadow phrasing — Venus is the OBJECT of the first trine,
     # not the subject of the second; it must not become a Venus-MC trine claim.
     reading = "Mars stations; the trine to Venus and the trine to the Midheaven integrate it."
-    report = check_fabrications(reading, _hardening_brief().to_markdown())
+    report = check_fabrications(reading, _hardening_brief())
     assert all(
         not (c.body_a == "Venus" and c.aspect == "trine" and c.body_b == "Midheaven")
         for c in report.unsupported_claims
@@ -141,7 +144,7 @@ def test_does_not_misbind_an_aspect_object_as_the_next_aspects_subject():
 
 def test_does_not_read_the_word_t_square_as_a_square_aspect():
     reading = "Pluto sits at the apex of the t-square with the Moon."
-    report = check_fabrications(reading, _hardening_brief().to_markdown())
+    report = check_fabrications(reading, _hardening_brief())
     assert all(c.aspect != "square" for c in report.unsupported_claims)
 
 
@@ -149,11 +152,31 @@ def test_consumes_a_coordinated_object_list_so_it_does_not_leak_a_subject():
     # "sextile Uranus and Neptune, trine the South Node" — Neptune is a coordinated
     # object of the sextile, not the subject of the trine.
     reading = "Pluto is sextile Uranus and Neptune, trine the South Node."
-    report = check_fabrications(reading, _hardening_brief().to_markdown())
+    report = check_fabrications(reading, _hardening_brief())
     assert all(not (c.body_a == "Neptune" and c.body_b == "South Node") for c in report.unsupported_claims)
 
 
 def test_does_not_bind_a_station_to_an_angle():
     reading = "The Ascendant holds the chart together while Mars sits at a standstill."
-    report = check_fabrications(reading, _hardening_brief().to_markdown())
+    report = check_fabrications(reading, _hardening_brief())
     assert all(c.body_a != "Ascendant" for c in report.unsupported_claims)
+
+
+def test_check_fabrications_rejects_rendered_chart_brief_markdown():
+    with pytest.raises(TypeError, match="ChartBrief"):
+        check_fabrications("Pluto conjunct the IC.", _john_d_style_brief().to_markdown())
+
+
+def test_check_fabrications_uses_structured_chart_brief_without_rendering_markdown(monkeypatch):
+    def fail_if_markdown_is_used(self: ChartBrief) -> str:
+        raise AssertionError("fabrication guard must derive facts from structured ChartBrief layers")
+
+    monkeypatch.setattr(ChartBrief, "to_markdown", fail_if_markdown_is_used)
+
+    report = check_fabrications("Pluto conjunct the IC and stationary Mercury.", _john_d_style_brief())
+
+    assert report.unsupported_count == 2
+
+
+def test_markdown_chart_brief_parser_has_been_removed():
+    assert not hasattr(fabrication, "_parse_chart_brief")
