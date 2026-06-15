@@ -1,6 +1,22 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from typing import Any, Literal
+
+AspectName = Literal["conjunction", "opposition", "square", "trine", "sextile"]
+
+ASPECT_ALIASES: dict[str, AspectName] = {
+    "conjunct": "conjunction",
+    "conjunction": "conjunction",
+    "opposite": "opposition",
+    "opposition": "opposition",
+    "square": "square",
+    "squares": "square",
+    "trine": "trine",
+    "trines": "trine",
+    "sextile": "sextile",
+    "sextiles": "sextile",
+}
 
 
 class ChartComputationError(ValueError):
@@ -76,6 +92,12 @@ class Configuration:
 
 
 @dataclass(frozen=True)
+class ChartFacts:
+    aspects: frozenset[tuple[frozenset[str], AspectName]]
+    speeds_by_body: dict[str, list[float]]
+
+
+@dataclass(frozen=True)
 class LayerBrief:
     name: str
     julian_day_ut: float
@@ -94,6 +116,48 @@ class ChartBrief:
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, object]) -> ChartBrief:
+        resolved_birth = ResolvedBirth(**_mapping(payload["resolved_birth"]))
+        layers = [
+            LayerBrief(
+                name=layer["name"],
+                julian_day_ut=layer["julian_day_ut"],
+                bodies=[BodyPosition(**_mapping(body)) for body in _sequence(layer["bodies"])],
+                house_cusps=[HouseCusp(**_mapping(cusp)) for cusp in _sequence(layer["house_cusps"])],
+                aspects=[Aspect(**_mapping(aspect)) for aspect in _sequence(layer["aspects"])],
+                configurations=[
+                    Configuration(
+                        type=configuration["type"],
+                        bodies=list(_sequence(configuration["bodies"])),
+                        details=dict(_mapping(configuration["details"])),
+                    )
+                    for configuration in _sequence(layer["configurations"])
+                ],
+            )
+            for layer in (_mapping(item) for item in _sequence(payload["layers"]))
+        ]
+        return cls(
+            zodiac=payload["zodiac"],
+            house_system=payload["house_system"],
+            resolved_birth=resolved_birth,
+            layers=layers,
+        )
+
+    @property
+    def facts(self) -> ChartFacts:
+        aspects: set[tuple[frozenset[str], AspectName]] = set()
+        speeds_by_body: dict[str, list[float]] = {}
+        for layer in self.layers:
+            for aspect in layer.aspects:
+                canonical_aspect = canonical_aspect_name(aspect.aspect)
+                if canonical_aspect:
+                    aspects.add((frozenset((aspect.body_a, aspect.body_b)), canonical_aspect))
+            for body in layer.bodies:
+                if body.speed is not None:
+                    speeds_by_body.setdefault(body.name, []).append(body.speed)
+        return ChartFacts(aspects=frozenset(aspects), speeds_by_body=speeds_by_body)
 
     def to_markdown(self) -> str:
         lines = [
@@ -170,3 +234,19 @@ class ChartBrief:
             lines.append("")
 
         return "\n".join(lines).rstrip() + "\n"
+
+
+def canonical_aspect_name(value: str) -> AspectName | None:
+    return ASPECT_ALIASES.get(value.strip().casefold())
+
+
+def _mapping(value: object) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise TypeError("expected a mapping while reconstructing ChartBrief")
+    return value
+
+
+def _sequence(value: object) -> list[Any]:
+    if not isinstance(value, list):
+        raise TypeError("expected a list while reconstructing ChartBrief")
+    return value
