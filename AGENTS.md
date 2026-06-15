@@ -173,7 +173,25 @@ Reflection scaffold) and re-assemble. If it reports an unresolved fabrication,
 remove that false specific from the portrait and re-validate. When it is OK,
 present `runs/<run>/dossier.md`.
 
-### 10. Compare two runs of the same native
+### 10. Render the rendered dossier — HTML report
+Render the run artifact as a self-contained, multi-page HTML **rendered dossier**
+— the individuation portrait, the computed chart wheel, the nine structure
+readings, and the depth-critic — for reading and sharing. This is a deterministic
+formatting of the already-persisted artifacts: it runs no model and computes no
+chart data (ADR-0002), and the runtime invokes it explicitly as an in-repo tool
+(ADR-0007).
+
+    uv run python - <<'PY'
+    from pathlib import Path
+    from natal_chart.report import render_report
+    path = render_report(Path("runs/<native>-<ts>"))
+    print(path)
+    PY
+
+Present `runs/<run>/report/index.html` alongside `dossier.md` as the run's
+human-facing artifact.
+
+### 11. Compare two runs of the same native
 To read two configurations side by side:
 
     uv run python - <<'PY'
