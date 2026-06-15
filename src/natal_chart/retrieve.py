@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from natal_chart.corpus import VECTOR_DIMENSIONS, embed_text
+from natal_chart.run_artifact import RunArtifact
 from natal_chart.semantic import SemanticEmbeddingModel, model_from_payload
 
 
@@ -117,11 +118,9 @@ def write_agent_grounding(
     top_k: int = 5,
     min_results: int = 2,
 ) -> dict[str, RetrievalResult]:
-    run_dir = Path(run_dir)
+    artifact = RunArtifact(run_dir)
     charter_root = Path(charter_root)
-    chart_brief = (run_dir / "chart-brief.md").read_text(encoding="utf-8")
-    grounding_dir = run_dir / "grounding"
-    grounding_dir.mkdir(parents=True, exist_ok=True)
+    chart_brief = artifact.read_text("chart_brief")
 
     results = {}
     for slug in structures:
@@ -145,7 +144,7 @@ def write_agent_grounding(
                 grounding_note=f"Sparse grounding: corpus index not found at {_database_path_candidate(index_dir)}.",
             )
         results[slug] = result
-        (grounding_dir / f"{slug}.md").write_text(_grounding_markdown(slug, result), encoding="utf-8")
+        artifact.write_text("grounding", _grounding_markdown(slug, result), slug=slug)
     return results
 
 
@@ -157,9 +156,7 @@ def write_amplification_grounding(
     top_k: int = 5,
     min_results: int = 1,
 ) -> RetrievalResult:
-    run_dir = Path(run_dir)
-    grounding_dir = run_dir / "grounding"
-    grounding_dir.mkdir(parents=True, exist_ok=True)
+    artifact = RunArtifact(run_dir)
 
     try:
         result = retrieve_amplification(
@@ -177,7 +174,7 @@ def write_amplification_grounding(
             sparse=True,
             grounding_note=f"Sparse grounding: corpus index not found at {_database_path_candidate(index_dir)}.",
         )
-    (grounding_dir / "amplification.md").write_text(_grounding_markdown("amplification", result), encoding="utf-8")
+    artifact.write_text("amplification_grounding", _grounding_markdown("amplification", result))
     return result
 
 
