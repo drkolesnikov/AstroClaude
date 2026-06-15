@@ -4,25 +4,11 @@ import re
 from dataclasses import asdict, dataclass
 from typing import Literal
 
-from natal_chart.models import ChartBrief
+from natal_chart.models import ASPECT_ALIASES, AspectName, ChartBrief
 
-AspectName = Literal["conjunction", "opposition", "square", "trine", "sextile"]
 ClaimType = Literal["aspect", "station"]
 
 STATION_SPEED_THRESHOLD = 0.05
-
-ASPECT_ALIASES: dict[str, AspectName] = {
-    "conjunct": "conjunction",
-    "conjunction": "conjunction",
-    "opposite": "opposition",
-    "opposition": "opposition",
-    "square": "square",
-    "squares": "square",
-    "trine": "trine",
-    "trines": "trine",
-    "sextile": "sextile",
-    "sextiles": "sextile",
-}
 
 BODY_ALIASES = {
     "sun": "Sun",
