@@ -236,6 +236,18 @@ def test_assemble_dossier_composes_layered_dossier(tmp_path):
     # the chart brief is included verbatim at the bottom
     assert brief.to_markdown() in text
 
+    # each section header appears exactly once: a textual auto-merge of the
+    # run.py seam once kept two "## Critic Challenges" sections (right order,
+    # rendered twice). Order assertions alone don't catch that.
+    for header in (
+        "## Individuation Portrait",
+        "## Structure Readings",
+        "## Critic Challenges",
+        "## Chart Brief",
+        "## Reflection",
+    ):
+        assert text.count(header) == 1, f"{header!r} should appear exactly once"
+
 
 def test_write_fabrication_report_checks_each_structure_reading(tmp_path):
     spec = RunSpec(native="ada-lovelace", structures=["ego", "shadow"])
@@ -398,6 +410,11 @@ def test_validate_run_requires_critic_section_for_complete_artifact(tmp_path):
 
     assert report.ok is False
     assert "missing critic" in report.problems
+    # a single missing critic.md must be reported exactly once: two slices each
+    # added a critic check to validate_run, and a textual auto-merge once kept
+    # both (one "missing critic", one "missing critic pass"). Substring/`any`
+    # assertions don't catch that — count does.
+    assert sum("critic" in problem for problem in report.problems) == 1
 
 
 def test_validate_run_requires_reflection_scaffold_for_complete_artifact(tmp_path):

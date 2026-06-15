@@ -195,9 +195,6 @@ class RunArtifact:
                         problems.append(f"fabrication report missing structure: {slug}")
                 problems.extend(self._unresolved_fabrication_problems(fabrication_payload))
 
-        if not _non_empty(self.path("critic")):
-            problems.append("missing critic pass")
-
         return ValidationReport(ok=not problems, problems=problems)
 
     def assemble(self) -> Path:
