@@ -1,8 +1,21 @@
-# natal-chart
+# AstroClaude
 
-Astrology read through Jung, run by a stack of LLM agents: one for each structure of the psyche, plus a critic that tears up anything that sounds like a horoscope. You give it birth data, it writes a long psychological reading of the chart and shows its work.
+This is a personal project that I initiated while fusing my fascination with a few things at once: the occult, archetypal astrology, the analytical psychology of Jung and post-Jungian schools.
 
-It's a research sandbox, not a product. If a sentence in the output could apply to anyone, that counts as a failure.
+The idea came to me from interacting with LLMs. These fascinating machines are very good at automating language (and, well, also happen to be good at code and that's all the buzz, but I don't really care about SWEs getting replaced or my humble mortal shell getting turned into a paperclip by ASI), and they sparked my curiosity about whether they can be made to automate something more interesting - the archetypal fields and the difficult task of archetypal readings of astrological charts.
+
+A sophisticated reader and appreciator of the occult might rightfully claim that we already have an abundance of automated chart-reading tools, and they would be right.
+However, the issue is that those tools don't quite capture the unified reading that can be performed by a proficient practitioner of the occult, and the task of finding a somewhat decent archetypal astrologer is quite Sisyphean even in the era of the Internet.
+
+And that's where AstroClaude comes in.
+An automated language machine with a bolted-on corpus of books, serving as a runtime for interpreting the chart.
+
+It is by no means capable of replacing a decent reading (at least at the current date, Opus 4.6-4.8 tier models). Maybe Fable and consecutive improvements in the ML scene will make this tool more exciting to work with.
+But, nevertheless, for someone already versed in the fine art of amplification and archetypal astrology, this can serve as a fun stick to chew on and maybe gather some interesting insights into the chart.
+
+The text after this section was authored by Claude, and I don't claim to understand even half of the tech argot it emits, but maybe it'll be useful for your own agent to get a better read on how this machinery works.
+
+Have fun readings!
 
 ## What happens when you run it
 
