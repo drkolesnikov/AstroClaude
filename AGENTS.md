@@ -1,4 +1,4 @@
-# Orchestration Brief — Natal-Chart Depth Instrument
+# Orchestration Brief — AstroClaude
 
 This is the brief the orchestrating Claude Code agent follows to perform one
 **run**. The runtime is Claude Code itself (ADR-0007): you call deterministic

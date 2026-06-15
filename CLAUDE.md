@@ -1,7 +1,8 @@
-# Natal Chart Method Sandbox
+# AstroClaude
 
-This repository is a Claude Code-native research sandbox. The orchestration brief
-lives in `AGENTS.md` — **load it before performing an end-to-end run**. It tells
+AstroClaude is a Claude Code-native instrument for reading a natal chart through
+depth psychology. The orchestration brief lives in `AGENTS.md` — **load it before
+performing an end-to-end run**. It tells
 you how to compute the chart, retrieve depth-corpus grounding, fan out the
 structure agents, write the critic section, run the interpreter, record
 Reflection, compare runs, and assemble the dossier.
