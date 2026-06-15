@@ -40,7 +40,10 @@ _Avoid_: issue, hangup
 **Multivalence**:
 The principle that every planetary archetype expresses across a spectrum (from
 afflicted to sublimated, literal to symbolic) and must never be collapsed to a
-single valence. The chief guard against cookbook flattening.
+single valence — the chief guard against cookbook flattening. It governs the
+*exploration* (the structure agents and the depth-critic), which holds the full
+spectrum open; the interpreter then commits to the valence live in *this* chart
+(ADR-0009). A process rule, not a property the final reading must preserve.
 _Avoid_: fixed meaning, definition
 
 ### Chart composition
@@ -72,10 +75,12 @@ structure of the psyche, never by a planet, house, or aspect.
 _Avoid_: planet agent, factor agent, facet
 
 **Interpreter**:
-The single strong synthesis agent that integrates the structure agents' outputs
-into one holistic report, reading from the individuation / Self vantage. The
-integrating totality — not a peer in the fan-out.
-_Avoid_: aggregator, summarizer, reducer, merger
+The single strong synthesis agent that, having absorbed the structure agents'
+outputs and the depth-critic's challenges, *commits* to one prioritized reading of
+the chart from the individuation / Self vantage — a centre named and owned, the
+rest subordinated. The integrating totality, not a peer in the fan-out; it commits
+where the agents explored (ADR-0009).
+_Avoid_: aggregator, summarizer, reducer, merger, field-holder
 
 **Depth-critic**:
 The agent that attacks each structure agent's reading for vagueness, Barnum,

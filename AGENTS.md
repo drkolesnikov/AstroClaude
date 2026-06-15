@@ -154,8 +154,11 @@ challenges to `runs/<run>/critic.md`. It writes no interpretation.
 Spawn one interpreter subagent with `agents/_interpreter.md`, the nine structure
 readings, **the critic's challenges (`critic.md`)**, `fabrication-report.md`, and
 the chart brief. Building on the threads the critic left standing, and dropping
-every fabrication-report item marked as claims to drop, it writes the holistic
-portrait to `runs/<run>/interpretation.md`.
+every fabrication-report item marked as claims to drop, it **commits** to one
+prioritized portrait of the chart — a centre named in the first breath, the rest
+subordinated to it — and writes it to `runs/<run>/interpretation.md`. The portrait
+speaks about the chart, never the native, and carries no orb/aspect citations: the
+receipts live in the layers beneath it (ADR-0009).
 
 ### 9. Assemble + validate
     uv run python - <<'PY'
