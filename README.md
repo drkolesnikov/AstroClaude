@@ -23,9 +23,11 @@ Have fun readings!
 birth data
   -> compute_chart    real ephemeris math; the LLM never does this part
   -> 9 agents         each reads the whole chart through one Jungian structure, in parallel
+  -> a guard          flags any aspect or station an agent named that the chart doesn't contain
   -> a critic         goes after vague, Barnum, and cookbook claims
   -> an interpreter   stitches the survivors into one portrait
   -> a dossier        the reading, plus every agent's notes and the chart it worked from
+  -> an HTML report   the same dossier as a self-contained, multi-page site
 ```
 
 The nine are Ego, Persona, Shadow, Anima/Animus, the parental complexes, the wound, vocation, Eros, and the numinous. They read the same chart and reach different conclusions, on purpose. The Shadow agent's take on your Moon is a different thing from the Persona agent's.
@@ -46,6 +48,9 @@ uv run pytest
 uv run compute_chart --date 1990-01-01 --time 12:00 --place Moscow --country-code RU
 
 # a reading: open in Claude Code, say "do a run following AGENTS.md", read runs/.../dossier.md
+
+# render that reading as a self-contained HTML report
+uv run render_report runs/<native>-<timestamp>
 ```
 
 `compute_chart` prints what it computed: positions, cusps, aspects, configurations. Tropical and Placidus by default. Add `--include-optional-bodies` or the transit/progression/solar flags if you want them.
@@ -69,9 +74,9 @@ No corpus, no problem: the run still happens and says so plainly instead of pret
 ## Where the reasoning lives
 
 - `CONTEXT.md` is the glossary. Start here.
-- `docs/adr/` has the seven design decisions and the case for each.
+- `docs/adr/` has the design decisions and the case for each.
 - `agents/` is the charters, one per agent, in plain prose.
 
 ## Status, honestly
 
-The plumbing works and has tests. The readings are only as good as the charters, and those are first drafts. They get sharper by running real charts and cutting the agents that don't earn their place. Run it blind (birth data only) for the honest test of whether it found anything; run it contextualized (you hand it a biography) for a reading that lands harder and is easier to fool yourself with.
+The plumbing works and has tests — the chart math, the guard that flags invented aspects, the corpus retrieval, the HTML rendering. The readings are only as good as the charters, and those are first drafts. They get sharper by running real charts and cutting the agents that don't earn their place. Run it blind (birth data only) for the honest test of whether it found anything; run it contextualized (you hand it a biography) for a reading that lands harder and is easier to fool yourself with.
