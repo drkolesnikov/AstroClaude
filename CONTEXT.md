@@ -1,8 +1,8 @@
-# Natal Chart Analysis (Method Sandbox)
+# AstroClaude — Domain Language
 
-A research sandbox for studying how an ensemble of LLM agents can read a natal
-chart as a *depth-instrument* — surfacing non-obvious, generative archetypal
-hypotheses about the native, judged hermeneutically rather than by metrics.
+An instrument for reading a natal chart through depth psychology. An ensemble of
+LLM agents surface archetypal readings of the native — held across their range,
+grounded in the chart — for the analyst to weigh against the living person.
 
 ## Language
 
@@ -16,7 +16,7 @@ _Avoid_: client, subject, querent, patient, analysand
 **Archetypal hypothesis**:
 A provisional, multivalent interpretive claim about the native's psyche, offered
 for the analyst to test against the living person — never a pronouncement or a
-prediction. The unit of output the sandbox is judged on.
+prediction. The unit a reading is built from.
 _Avoid_: reading, prediction, result, verdict, trait
 
 ### The symbolic field
@@ -56,7 +56,7 @@ _Avoid_: technique, chart type
 
 **Selection**:
 The per-run specification of which layers (and, later, which finer factors) are
-in frame — from a single layer up to the full temporal picture. The sandbox's
+in frame — from a single layer up to the full temporal picture. The instrument's
 input knob, distinct from how agents decompose what they're given.
 _Avoid_: filter, config, mode
 
@@ -70,7 +70,7 @@ _Avoid_: prompt, context dump, chart data
 
 **Structure agent**:
 An agent that reads the *whole* chart through a single Jungian structure of the
-psyche (Shadow, Persona, Anima/Animus, …). The sandbox's facet. Defined by a
+psyche (Shadow, Persona, Anima/Animus, …). The instrument's facet. Defined by a
 structure of the psyche, never by a planet, house, or aspect.
 _Avoid_: planet agent, factor agent, facet
 
@@ -97,7 +97,7 @@ of one Moon). Overlap of significators is multivalence made manifest, not
 duplication to be removed.
 _Avoid_: role, scope
 
-Current structure-agent roster (the research variable, expected to evolve): Ego
+Current structure-agent roster (expected to evolve): Ego
 (conscious standpoint), Persona, Shadow, Anima/Animus, Parental complexes, Wound
 (Chiron), Vocation/telos, Eros/relating, Numinous/transpersonal — plus the Self
 as the interpreter's vantage. Anima/Animus is read *fluidly* (the contrasexual
@@ -132,7 +132,7 @@ _Avoid_: lookup, research
 
 **Run**:
 A single execution of the pipeline for a given native, selection, and run mode —
-the sandbox's unit of work and of comparison.
+the instrument's unit of work and of comparison.
 _Avoid_: session, job, analysis
 
 **Run artifact**:
@@ -156,6 +156,6 @@ _Avoid_: metadata, log
 
 **Reflection**:
 The analyst's freeform recorded judgement of a run artifact — what landed, what
-was generic or Barnum, what surprised. The sandbox's evaluation signal;
+was generic or Barnum, what surprised. How you judge a reading —
 deliberately qualitative, never a score.
 _Avoid_: score, rating, review
